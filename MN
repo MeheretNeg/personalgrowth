@@ -1,0 +1,194 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import { Plus, Trash, Edit, Save, X } from 'lucide-react'
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+
+export default function PersonalGrowthTracker() {
+  const [dimensions, setDimensions] = useState([
+    {
+      name: "Physical",
+      scripture: "Do you not know that your bodies are temples of the Holy Spirit, who is in you, whom you have received from God? You are not your own. - 1 Corinthians 6:19",
+      subheadings: ["Discipline", "Nutrition", "Rest"],
+      notes: []
+    },
+    {
+      name: "Emotional",
+      scripture: "A cheerful heart is good medicine, but a crushed spirit dries up the bones. - Proverbs 17:22",
+      subheadings: ["Self-awareness", "Resilience", "Empathy"],
+      notes: []
+    },
+    {
+      name: "Intellectual",
+      scripture: "The mind of the discerning acquires knowledge, and the ear of the wise seeks it out. - Proverbs 18:15",
+      subheadings: ["Curiosity", "Critical thinking", "Creativity"],
+      notes: []
+    },
+    {
+      name: "Social",
+      scripture: "As iron sharpens iron, so one person sharpens another. - Proverbs 27:17",
+      subheadings: ["Communication", "Compassion", "Community"],
+      notes: []
+    },
+    {
+      name: "Spiritual",
+      scripture: "But grow in the grace and knowledge of our Lord and Savior Jesus Christ. To him be glory both now and forever! Amen. - 2 Peter 3:18",
+      subheadings: ["Prayer", "Bible study", "Worship"],
+      notes: []
+    },
+    {
+      name: "Financial",
+      scripture: "The wise store up choice food and olive oil, but fools gulp theirs down. - Proverbs 21:20",
+      subheadings: ["Budgeting", "Saving", "Giving"],
+      notes: []
+    },
+    {
+      name: "Occupational",
+      scripture: "Whatever you do, work at it with all your heart, as working for the Lord, not for human masters. - Colossians 3:23",
+      subheadings: ["Skills development", "Goal setting", "Work-life balance"],
+      notes: []
+    }
+  ])
+
+  const [editingIndex, setEditingIndex] = useState<[number, number] | null>(null)
+  const [newSubheading, setNewSubheading] = useState("")
+  const [newNote, setNewNote] = useState("")
+
+  const addSubheading = (dimensionIndex: number) => {
+    if (newSubheading.trim()) {
+      const updatedDimensions = [...dimensions]
+      updatedDimensions[dimensionIndex].subheadings.push(newSubheading.trim())
+      setDimensions(updatedDimensions)
+      setNewSubheading("")
+    }
+  }
+
+  const deleteSubheading = (dimensionIndex: number, subheadingIndex: number) => {
+    const updatedDimensions = [...dimensions]
+    updatedDimensions[dimensionIndex].subheadings.splice(subheadingIndex, 1)
+    setDimensions(updatedDimensions)
+  }
+
+  const startEditing = (dimensionIndex: number, subheadingIndex: number) => {
+    setEditingIndex([dimensionIndex, subheadingIndex])
+    setNewSubheading(dimensions[dimensionIndex].subheadings[subheadingIndex])
+  }
+
+  const saveEdit = () => {
+    if (editingIndex && newSubheading.trim()) {
+      const [dimensionIndex, subheadingIndex] = editingIndex
+      const updatedDimensions = [...dimensions]
+      updatedDimensions[dimensionIndex].subheadings[subheadingIndex] = newSubheading.trim()
+      setDimensions(updatedDimensions)
+      setEditingIndex(null)
+      setNewSubheading("")
+    }
+  }
+
+  const addNote = (dimensionIndex: number) => {
+    if (newNote.trim()) {
+      const updatedDimensions = [...dimensions]
+      updatedDimensions[dimensionIndex].notes.push({
+        text: newNote.trim(),
+        timestamp: new Date().toISOString()
+      })
+      setDimensions(updatedDimensions)
+      setNewNote("")
+    }
+  }
+
+  const deleteNote = (dimensionIndex: number, noteIndex: number) => {
+    const updatedDimensions = [...dimensions]
+    updatedDimensions[dimensionIndex].notes.splice(noteIndex, 1)
+    setDimensions(updatedDimensions)
+  }
+
+  useEffect(() => {
+    document.body.classList.add('bg-gradient-to-br', 'from-teal-50', 'to-cyan-100', 'min-h-screen')
+    return () => {
+      document.body.classList.remove('bg-gradient-to-br', 'from-teal-50', 'to-cyan-100', 'min-h-screen')
+    }
+  }, [])
+
+  return (
+    <div className="container mx-auto p-4 sm:p-6 md:p-8 transition-all duration-300 ease-in-out">
+      <h1 className="text-4xl font-bold mb-8 text-center text-teal-800 animate-fade-in">Personal Growth Tracker</h1>
+      <Accordion type="single" collapsible className="w-full space-y-4">
+        {dimensions.map((dimension, dimensionIndex) => (
+          <AccordionItem value={`dimension-${dimensionIndex}`} key={dimensionIndex} className="border border-teal-200 rounded-lg overflow-hidden shadow-md hover:shadow-lg transition-shadow duration-300">
+            <AccordionTrigger className="text-xl font-semibold p-4 bg-teal-50 text-teal-800 hover:bg-teal-100 transition-colors duration-300">{dimension.name}</AccordionTrigger>
+            <AccordionContent className="p-4 bg-white">
+              <Card className="border-none shadow-none">
+                <CardHeader>
+                  <CardDescription className="italic text-sm text-teal-600">{dimension.scripture}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <h3 className="font-semibold mb-2 text-teal-800">Subheadings:</h3>
+                  <ul className="list-disc pl-5 mb-4 space-y-2">
+                    {dimension.subheadings.map((subheading, subheadingIndex) => (
+                      <li key={subheadingIndex} className="flex items-center justify-between group animate-fade-in">
+                        {editingIndex && editingIndex[0] === dimensionIndex && editingIndex[1] === subheadingIndex ? (
+                          <Input
+                            value={newSubheading}
+                            onChange={(e) => setNewSubheading(e.target.value)}
+                            className="mr-2 border-teal-300 focus:ring-teal-500"
+                          />
+                        ) : (
+                          <span className="text-teal-700">{subheading}</span>
+                        )}
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                          {editingIndex && editingIndex[0] === dimensionIndex && editingIndex[1] === subheadingIndex ? (
+                            <>
+                              <Button onClick={saveEdit} size="sm" className="mr-1 bg-teal-500 hover:bg-teal-600"><Save className="h-4 w-4" /></Button>
+                              <Button onClick={() => setEditingIndex(null)} size="sm" variant="outline" className="border-teal-500 text-teal-500 hover:bg-teal-50"><X className="h-4 w-4" /></Button>
+                            </>
+                          ) : (
+                            <>
+                              <Button onClick={() => startEditing(dimensionIndex, subheadingIndex)} size="sm" className="mr-1 bg-teal-500 hover:bg-teal-600"><Edit className="h-4 w-4" /></Button>
+                              <Button onClick={() => deleteSubheading(dimensionIndex, subheadingIndex)} size="sm" variant="outline" className="border-teal-500 text-teal-500 hover:bg-teal-50"><Trash className="h-4 w-4" /></Button>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex mb-4">
+                    <Input
+                      placeholder="New subheading"
+                      value={newSubheading}
+                      onChange={(e) => setNewSubheading(e.target.value)}
+                      className="mr-2 border-teal-300 focus:ring-teal-500"
+                    />
+                    <Button onClick={() => addSubheading(dimensionIndex)} className="bg-teal-500 hover:bg-teal-600 transition-colors duration-300"><Plus className="h-4 w-4 mr-1" /> Add</Button>
+                  </div>
+                  <h3 className="font-semibold mb-2 text-teal-800">Notes:</h3>
+                  <ul className="list-disc pl-5 mb-4 space-y-2">
+                    {dimension.notes.map((note, noteIndex) => (
+                      <li key={noteIndex} className="flex items-center justify-between group animate-fade-in">
+                        <span className="text-teal-700">{note.text} - <small className="text-teal-500">{new Date(note.timestamp).toLocaleString()}</small></span>
+                        <Button onClick={() => deleteNote(dimensionIndex, noteIndex)} size="sm" variant="outline" className="opacity-0 group-hover:opacity-100 transition-opacity duration-300 border-teal-500 text-teal-500 hover:bg-teal-50"><Trash className="h-4 w-4" /></Button>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex mb-4">
+                    <Textarea
+                      placeholder="Add a note"
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      className="mr-2 border-teal-300 focus:ring-teal-500"
+                    />
+                    <Button onClick={() => addNote(dimensionIndex)} className="bg-teal-500 hover:bg-teal-600 transition-colors duration-300"><Plus className="h-4 w-4 mr-1" /> Add Note</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            </AccordionContent>
+          </AccordionItem>
+        ))}
+      </Accordion>
+    </div>
+  )
+}
