@@ -145,6 +145,28 @@ export default function Plan() {
     );
   }
 
+  /**
+   * Escape hatch for rushed days: fill every un-planned task with the
+   * standard time — the international average (population median), or the
+   * user's own measured median once Anchor has one. Skipping the guess
+   * means skipping the training rep, so these tasks are excluded from
+   * calibration logging (no guess, nothing to score).
+   */
+  function fillWithStandards() {
+    setSelections(
+      selections.map((s) => {
+        if (s.planned !== undefined) return s;
+        const med = personalMedian(logs, s.taskId);
+        return {
+          ...s,
+          guess: "",
+          planned: med ?? getPrior(s.taskId)!.p50,
+          source: med !== null ? ("history" as const) : ("prior" as const),
+        };
+      }),
+    );
+  }
+
   function lock() {
     if (!timeline || !arrivalDate || !transit) return;
     // Scope drive calibration to this destination so "work" and "gym"
@@ -341,6 +363,23 @@ export default function Plan() {
               );
             })}
           </div>
+          {selections.some((s) => s.planned === undefined) && (
+            <div className="surface-soft flex items-center justify-between gap-3 p-3">
+              <p className="text-xs text-muted-foreground">
+                Rushed? Skip the guessing reps — plan the rest with standard
+                times: the international average, or your own medians once
+                Anchor has measured you.
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="shrink-0 rounded-full"
+                onClick={fillWithStandards}
+              >
+                Use standard times
+              </Button>
+            </div>
+          )}
           {selections.map((s) => {
             const prior = getPrior(s.taskId)!;
             const med = personalMedian(logs, s.taskId);
