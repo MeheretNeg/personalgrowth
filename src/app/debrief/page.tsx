@@ -14,7 +14,8 @@ import {
   saveTrip,
 } from "@/lib/store";
 import { formatTime } from "@/lib/engine";
-import { LEVELS, earnedLevel, stepToward } from "@/lib/graduation";
+import { LEVELS, earnedLevel, onTimeStreak, stepToward } from "@/lib/graduation";
+import { planNudgeCue, syncCues } from "@/lib/push-client";
 import { GraduationLevel, Trip } from "@/lib/types";
 
 const CAUSES = [
@@ -45,6 +46,7 @@ export default function DebriefPage() {
     from: GraduationLevel;
     to: GraduationLevel;
   } | null>(null);
+  const [streak, setStreak] = useState(0);
 
   useEffect(() => {
     const t = loadTrip();
@@ -75,6 +77,9 @@ export default function DebriefPage() {
       saveSettings({ ...settings, level: next });
       setLevelChange({ from: settings.level, to: next });
     }
+    setStreak(onTimeStreak(debriefs));
+    // Habit anchor: one evening nudge to plan the next arrival while calm.
+    void syncCues([planNudgeCue(new Date())]);
     setSaved(true);
   }
 
@@ -93,6 +98,11 @@ export default function DebriefPage() {
               ? "Every early arrival is your brain relearning what time feels like."
               : "Anchor folds this into your numbers — next plan gets harder to beat."}
           </p>
+          {onTime && streak >= 2 && (
+            <p className="mt-3 rounded-full bg-primary/12 px-4 py-2 text-sm font-bold text-primary">
+              🔥 {streak} on-time arrivals in a row
+            </p>
+          )}
         </section>
 
         {levelChange && (

@@ -467,7 +467,7 @@ export default function Plan() {
           </div>
           <p className="text-xs text-muted-foreground">
             {planMode === "quick"
-              ? "Tap tasks — times fill themselves: your measured medians where Anchor knows you, international averages where it doesn't. Your clock still learns from what actually happens; you just skip the guessing reps."
+              ? "Tap tasks — times fill themselves: your measured medians where Anchor knows you, international averages where it doesn't. Quick plan keeps you on time; Train mode is what graduates you — one trained trip a week is enough."
               : level >= 3
                 ? "Solo level: your guess is the plan. Anchor measures silently and tells you the truth at the debrief."
                 : level === 2

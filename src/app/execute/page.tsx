@@ -3,14 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { TimeDecay, formatCountdown } from "@/components/time-decay";
-import { appendLog, loadSettings, loadTrip, saveTrip } from "@/lib/store";
-import { formatTime, minutesUntil } from "@/lib/engine";
+import { appendLog, loadSettings, loadTrip, saveSettings, saveTrip } from "@/lib/store";
+import { formatTime, minutesUntil, rebuildRemaining } from "@/lib/engine";
 import { cueForStep, fireCue } from "@/lib/notify";
 import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
 import { TimelineStep, Trip } from "@/lib/types";
 
-const EXIT_CHECKLIST = ["Keys", "Wallet", "Phone", "Charger"];
+const DEFAULT_CHECKLIST = ["Keys", "Wallet", "Phone", "Charger"];
 
 /** The user's blind guess for a step, for calibration logging. */
 function guessFor(trip: Trip, step: TimelineStep): number | null {
@@ -27,6 +35,16 @@ export default function Execute() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [checked, setChecked] = useState<string[]>([]);
+  const [checklist, setChecklist] = useState<string[]>(() =>
+    typeof window === "undefined"
+      ? DEFAULT_CHECKLIST
+      : (loadSettings().exitChecklist ?? DEFAULT_CHECKLIST),
+  );
+  const [editingChecklist, setEditingChecklist] = useState(false);
+  const [checklistDraft, setChecklistDraft] = useState("");
+  const [banked, setBanked] = useState<{ amount: number; key: number } | null>(null);
+  const [replanOpen, setReplanOpen] = useState(false);
+  const [keepIds, setKeepIds] = useState<Set<string>>(new Set());
   const [level] = useState(() => (typeof window === "undefined" ? 1 : loadSettings().level));
   const firedCues = useRef<Set<string>>(new Set());
 
@@ -40,6 +58,13 @@ export default function Execute() {
     const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
   }, [router]);
+
+  // A banked-minutes moment is a reward, not a fixture — it fades.
+  useEffect(() => {
+    if (!banked) return;
+    const id = setTimeout(() => setBanked(null), 5000);
+    return () => clearTimeout(id);
+  }, [banked]);
 
   const idx = trip?.currentStepIndex ?? 0;
   const done = !trip || idx >= trip.timeline.length;
@@ -92,6 +117,9 @@ export default function Execute() {
   const behind = driftMin >= 1;
   const ahead = driftMin <= -1;
 
+  const remainingPrep = trip.timeline.slice(idx).filter((s) => s.kind === "prep");
+  const canReplan = !done && behind && driftMin >= 3 && remainingPrep.length > 0;
+
   function update(next: Trip) {
     saveTrip(next);
     setTrip(next);
@@ -124,10 +152,41 @@ export default function Execute() {
         at: nowIso,
       });
     }
+    // Immediate reward: beating the block banks visible minutes.
+    if (current.startedAt) {
+      const spentMin = (Date.now() - new Date(current.startedAt).getTime()) / 60_000;
+      const saved = Math.floor(current.plannedMinutes - spentMin);
+      if (saved >= 1) setBanked({ amount: saved, key: Date.now() });
+    }
     const timeline = trip!.timeline.map((s, i) =>
       i === idx ? { ...s, finishedAt: nowIso } : s,
     );
     update({ ...trip!, timeline, currentStepIndex: idx + 1 });
+    setChecked([]);
+  }
+
+  function openReplan() {
+    setKeepIds(new Set(remainingPrep.map((s) => s.taskId!).filter(Boolean)));
+    setReplanOpen(true);
+  }
+
+  function confirmReplan() {
+    const rebuilt = rebuildRemaining(trip!.timeline, idx, keepIds);
+    setReplanOpen(false);
+    firedCues.current.clear();
+    update({ ...trip!, timeline: rebuilt.timeline });
+  }
+
+  function saveChecklist() {
+    const items = checklistDraft
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, 10);
+    const next = items.length ? items : DEFAULT_CHECKLIST;
+    setChecklist(next);
+    saveSettings({ ...loadSettings(), exitChecklist: next });
+    setEditingChecklist(false);
     setChecked([]);
   }
 
@@ -139,6 +198,13 @@ export default function Execute() {
 
   const secsToStart = step ? minutesUntil(step.startsAt, now) * 60 : 0;
   const overdueStart = step && !running && secsToStart <= 0;
+
+  // Live fit preview for the replan dialog.
+  const replanPreview =
+    replanOpen && !done ? rebuildRemaining(trip.timeline, idx, keepIds) : null;
+  const replanSlackMin = replanPreview
+    ? Math.floor(minutesUntil(replanPreview.startAt.toISOString(), now))
+    : 0;
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 px-5 py-8">
@@ -154,7 +220,7 @@ export default function Execute() {
 
       {!done && step && (
         <>
-          {/* Always-visible plan drift — the number the user asked to SEE. */}
+          {/* Always-visible plan drift — lateness as a number, not a vibe. */}
           <div
             className={`flex items-center justify-between rounded-full px-4 py-2.5 text-sm font-semibold ${
               behind
@@ -174,14 +240,39 @@ export default function Execute() {
                   : "On plan"}
             </span>
             <span className={`text-xs font-medium ${behind ? "" : "text-muted-foreground"}`}>
-              {behind ? "chop chop — make it back" : ahead ? "keep it, don't spend it" : "stay on the block"}
+              {behind
+                ? driftMin >= 15
+                  ? "this plan is dead — replan it"
+                  : "chop chop — make it back"
+                : ahead
+                  ? "keep it, don't spend it"
+                  : "stay on the block"}
             </span>
           </div>
+
+          {canReplan && (
+            <button
+              onClick={openReplan}
+              className="surface-active p-3 text-center text-sm font-semibold text-primary"
+            >
+              Replan from now — make it winnable again
+            </button>
+          )}
+
+          {banked && (
+            <p
+              key={banked.key}
+              className="rounded-full bg-primary/12 px-4 py-2 text-center text-sm font-bold text-primary"
+              role="status"
+            >
+              +{banked.amount} min banked. That's your lead — protect it.
+            </p>
+          )}
 
           <section
             className={`${
               isFinalStaging ? "surface-alert" : "surface-active"
-            } flex min-h-[26rem] flex-col justify-between gap-4 p-6`}
+            } flex min-h-[24rem] flex-col justify-between gap-4 p-6`}
           >
             <div>
               <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
@@ -215,8 +306,8 @@ export default function Execute() {
             )}
 
             {isFinalStaging && running && (
-              <div className="flex flex-wrap gap-2">
-                {EXIT_CHECKLIST.map((item) => (
+              <div className="flex flex-wrap items-center gap-2">
+                {checklist.map((item) => (
                   <button
                     key={item}
                     onClick={() =>
@@ -234,6 +325,16 @@ export default function Execute() {
                     {item}
                   </button>
                 ))}
+                <button
+                  onClick={() => {
+                    setChecklistDraft(checklist.join("\n"));
+                    setEditingChecklist(true);
+                  }}
+                  aria-label="Edit checklist"
+                  className="rounded-full px-3 py-2 text-sm text-muted-foreground surface-soft"
+                >
+                  ✎
+                </button>
               </div>
             )}
 
@@ -290,6 +391,74 @@ export default function Execute() {
           </Button>
         </section>
       )}
+
+      {/* Failure routes back into the loop: rebuild a winnable plan. */}
+      <Dialog open={replanOpen} onOpenChange={setReplanOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Replan from now</DialogTitle>
+            <DialogDescription>
+              The anchor doesn&apos;t move. Cut what you can live without —
+              everything left gets fresh, honest times.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            {remainingPrep.map((s) => {
+              const kept = s.taskId !== undefined && keepIds.has(s.taskId);
+              return (
+                <button
+                  key={s.id}
+                  onClick={() =>
+                    setKeepIds((cur) => {
+                      const next = new Set(cur);
+                      if (s.taskId === undefined) return next;
+                      if (next.has(s.taskId)) next.delete(s.taskId);
+                      else next.add(s.taskId);
+                      return next;
+                    })
+                  }
+                  className={`flex items-center justify-between rounded-xl px-3.5 py-2.5 text-sm font-semibold ${
+                    kept ? "surface-soft" : "surface-soft opacity-45 line-through"
+                  }`}
+                >
+                  <span>{s.label}</span>
+                  <span className="text-muted-foreground">{s.plannedMinutes}m</span>
+                </button>
+              );
+            })}
+          </div>
+          <p
+            className={`text-sm font-semibold ${
+              replanSlackMin >= 0 ? "text-primary" : "text-destructive"
+            }`}
+          >
+            {replanSlackMin >= 0
+              ? `Fits — starts in ${Math.max(0, replanSlackMin)} min.`
+              : `Still ${-replanSlackMin} min over — cut more, or move fast.`}
+          </p>
+          <Button className="h-12 rounded-full font-bold" onClick={confirmReplan}>
+            Reset the plan to now
+          </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* Out-the-door list is personal: kids' bag, medication, badge… */}
+      <Dialog open={editingChecklist} onOpenChange={setEditingChecklist}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Your out-the-door checklist</DialogTitle>
+            <DialogDescription>One item per line (max 10).</DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={checklistDraft}
+            onChange={(e) => setChecklistDraft(e.target.value)}
+            rows={6}
+          />
+          <Button className="h-11 rounded-full font-bold" onClick={saveChecklist}>
+            Save checklist
+          </Button>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }

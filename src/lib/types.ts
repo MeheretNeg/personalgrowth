@@ -88,4 +88,6 @@ export interface Settings {
    * still learns silently from measured actuals.
    */
   planMode?: "train" | "quick";
+  /** Custom out-the-door checklist; falls back to the default four. */
+  exitChecklist?: string[];
 }

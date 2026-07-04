@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { loadTrip, loadLogs, loadDebriefs } from "@/lib/store";
 import { calibrationScore } from "@/lib/calibration";
+import { onTimeStreak } from "@/lib/graduation";
 import { Trip } from "@/lib/types";
 
 const PHASE_ROUTE: Record<string, string> = {
@@ -20,6 +21,7 @@ export default function Pulse() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [score, setScore] = useState<number | null>(null);
   const [debriefCount, setDebriefCount] = useState(0);
+  const [streak, setStreak] = useState(0);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -30,7 +32,9 @@ export default function Pulse() {
     }
     setTrip(t);
     setScore(calibrationScore(loadLogs()));
-    setDebriefCount(loadDebriefs().length);
+    const debriefs = loadDebriefs();
+    setDebriefCount(debriefs.length);
+    setStreak(onTimeStreak(debriefs));
     setReady(true);
   }, [router]);
 
@@ -82,6 +86,12 @@ export default function Pulse() {
           <p className="text-2xl font-bold tabular-nums">{debriefCount}</p>
         </div>
       </section>
+
+      {streak >= 2 && (
+        <p className="rounded-full bg-primary/12 px-4 py-2 text-center text-sm font-bold text-primary">
+          🔥 {streak} on-time arrivals in a row — don&apos;t break the chain
+        </p>
+      )}
 
       <Link
         href="/stats"
