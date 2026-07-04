@@ -15,6 +15,8 @@ import { Debrief, DurationLog, GraduationLevel } from "@/lib/types";
 function labelFor(taskId: string, logs: DurationLog[]): string {
   if (taskId.startsWith("drive:"))
     return `Drive → ${taskId.slice(6).replace(/-/g, " ")}`;
+  if (taskId.startsWith("walk:"))
+    return `Walk → ${taskId.slice(5).replace(/-/g, " ")}`;
   return logs.find((l) => l.taskId === taskId)?.taskId.replace(/-/g, " ") ?? taskId;
 }
 

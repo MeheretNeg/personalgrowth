@@ -61,14 +61,20 @@ function travelChain(transit: TransitDetails): BackwardBlock[] {
       return [
         { kind: "staging", label: "Staged at the door", minutes: BUFFERS.doorstepStaging, ifThenVerb: "stand at the door with everything in hand" },
         { kind: "travel", label: "Walk to car", minutes: BUFFERS.walkToCar, ifThenVerb: "walk out and get in the car" },
-        { kind: "travel", label: "Drive", minutes: transit.driveMinutes ?? 0, ifThenVerb: "start driving" },
+        { kind: "travel", label: "Drive", minutes: transit.driveMinutes ?? 0, ifThenVerb: "start driving", taskId: "drive" },
         { kind: "travel", label: "Park + walk in", minutes: BUFFERS.parking, ifThenVerb: "start looking for parking" },
+      ];
+    case "walking":
+      return [
+        { kind: "staging", label: "Staged at the door", minutes: BUFFERS.doorstepStaging, ifThenVerb: "stand at the door with everything in hand" },
+        { kind: "travel", label: "Walk", minutes: transit.walkMinutes ?? 0, ifThenVerb: "walk out and keep moving", taskId: "walk" },
+        { kind: "travel", label: "Cross + find the door", minutes: BUFFERS.walkArrival, ifThenVerb: "look for the entrance" },
       ];
     case "pickingUp":
       return [
         { kind: "staging", label: "Staged at the door", minutes: BUFFERS.doorstepStaging, ifThenVerb: "stand at the door with everything in hand" },
         { kind: "travel", label: "Walk to car", minutes: BUFFERS.walkToCar, ifThenVerb: "walk out and get in the car" },
-        { kind: "travel", label: "Drive", minutes: transit.driveMinutes ?? 0, ifThenVerb: "start driving" },
+        { kind: "travel", label: "Drive", minutes: transit.driveMinutes ?? 0, ifThenVerb: "start driving", taskId: "drive" },
         { kind: "travel", label: "Pull up curbside", minutes: BUFFERS.curbside, ifThenVerb: "pull up where they can see me" },
       ];
     case "transit":

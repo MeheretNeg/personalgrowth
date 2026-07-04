@@ -36,7 +36,7 @@ Import `MeheretNeg/personalgrowth` at [vercel.com/new](https://vercel.com/new) �
 src/
   app/
     page.tsx          Pulse dashboard (single next-action card)
-    plan/             Trip wizard — guess-first estimates, 4 transit modes
+    plan/             Trip wizard — guess-first estimates, 5 transit modes
     lock/             If-then chain + episodic future thinking
     execute/          One task, countdown + time-decay block, drift pill
     debrief/          Arrival delta + cause attribution + level movement

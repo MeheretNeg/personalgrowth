@@ -49,6 +49,8 @@ export const BUFFERS = {
   pickupStaging: 10,
   /** Be at the stop before the bus/train, not as it arrives. */
   platform: 3,
+  /** Walking arrival: lights, crossings, finding the entrance. */
+  walkArrival: 3,
   /** Curbside drop-off buffer when picking someone up (no parking hunt). */
   curbside: 3,
 } as const;
