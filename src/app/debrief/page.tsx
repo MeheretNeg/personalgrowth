@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { VoiceInput } from "@/components/voice-input";
 import {
   appendDebrief,
   loadLogs,
@@ -171,11 +172,17 @@ export default function DebriefPage() {
             </button>
           ))}
         </div>
-        <Textarea
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Anything future-you should know? (optional)"
-        />
+        <div className="flex items-start gap-2">
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="Anything future-you should know? (optional)"
+          />
+          <VoiceInput
+            label="Speak the note"
+            onResult={(text) => setNote((cur) => (cur ? `${cur} ${text}` : text))}
+          />
+        </div>
       </section>
 
       <Button
