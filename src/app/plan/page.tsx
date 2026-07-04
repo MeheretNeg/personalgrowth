@@ -12,6 +12,7 @@ import { PlannedTask, TransitDetails, TransitMode, Trip } from "@/lib/types";
 
 const MODES: { id: TransitMode; label: string; hint: string }[] = [
   { id: "driving", label: "Driving", hint: "You drive yourself there" },
+  { id: "walking", label: "Walking", hint: "On foot, door to door" },
   { id: "transit", label: "Bus / train", hint: "Anchored to its departure, not your arrival" },
   { id: "pickup", label: "Being picked up", hint: "Ready at the door before they arrive" },
   { id: "pickingUp", label: "Picking someone up", hint: "Curbside on time for them" },
@@ -40,6 +41,7 @@ export default function Plan() {
   const [arrivalTime, setArrivalTime] = useState("");
   const [mode, setMode] = useState<TransitMode | null>(null);
   const [driveGuess, setDriveGuess] = useState("");
+  const [walkGuess, setWalkGuess] = useState("");
   const [transitDeparture, setTransitDeparture] = useState("");
   const [walkToStop, setWalkToStop] = useState("10");
   const [pickupTime, setPickupTime] = useState("");
@@ -62,10 +64,11 @@ export default function Plan() {
     if (!mode) return null;
     if (mode === "driving" || mode === "pickingUp")
       return { mode, driveMinutes: Number(driveGuess) || 0 };
+    if (mode === "walking") return { mode, walkMinutes: Number(walkGuess) || 0 };
     if (mode === "transit")
       return { mode, transitDepartureTime: transitDeparture, walkToStopMinutes: Number(walkToStop) || 10 };
     return { mode, pickupTime };
-  }, [mode, driveGuess, transitDeparture, walkToStop, pickupTime]);
+  }, [mode, driveGuess, walkGuess, transitDeparture, walkToStop, pickupTime]);
 
   const plannedTasks: PlannedTask[] = useMemo(
     () =>
@@ -169,10 +172,12 @@ export default function Plan() {
 
   function lock() {
     if (!timeline || !arrivalDate || !transit) return;
-    // Scope drive calibration to this destination so "work" and "gym"
+    // Scope travel calibration to this destination so "work" and "gym"
     // learn separately.
     const steps = timeline.steps.map((s) =>
-      s.taskId === "drive" ? { ...s, taskId: `drive:${slug(destination)}` } : s,
+      s.taskId === "drive" || s.taskId === "walk"
+        ? { ...s, taskId: `${s.taskId}:${slug(destination)}` }
+        : s,
     );
     const settings = loadSettings();
     const trip: Trip = {
@@ -197,9 +202,11 @@ export default function Plan() {
       : step === 1
         ? (mode === "driving" || mode === "pickingUp"
             ? Number(driveGuess) > 0
-            : mode === "transit"
-              ? !!transitDeparture
-              : !!pickupTime)
+            : mode === "walking"
+              ? Number(walkGuess) > 0
+              : mode === "transit"
+                ? !!transitDeparture
+                : !!pickupTime)
         : plannedTasks.length > 0;
 
   /** Exact deficit when the plan already starts in the past. */
@@ -302,6 +309,50 @@ export default function Plan() {
           <p className="text-xs text-muted-foreground">
             Parking + walking in ({mode === "driving" ? "10" : "3"} min) and
             getting to the car (3 min) are added automatically — those are the
+            minutes time blindness always steals.
+          </p>
+        </section>
+      )}
+
+      {step === 1 && mode === "walking" && (
+        <section className="flex flex-col gap-3">
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            Honest gut guess: how many minutes is the walk?
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={walkGuess}
+              onChange={(e) => setWalkGuess(e.target.value)}
+              placeholder="minutes"
+            />
+          </label>
+          {level < 3 &&
+            (() => {
+              const med = personalMedian(logs, `walk:${slug(destination)}`);
+              return med !== null ? (
+                <div className="surface-soft p-3.5 text-sm">
+                  Your last walks to <b>{destination}</b> actually took about{" "}
+                  <b className="text-primary">{med} min</b>.
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2 w-full rounded-full"
+                    onClick={() => setWalkGuess(String(med))}
+                  >
+                    Use {med} min
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Anchor measures the real walk every trip and will correct you
+                  once it knows this route.
+                </p>
+              );
+            })()}
+          <p className="text-xs text-muted-foreground">
+            Getting staged at the door (5 min) and lights, crossings, finding
+            the entrance (3 min) are added automatically — those are the
             minutes time blindness always steals.
           </p>
         </section>

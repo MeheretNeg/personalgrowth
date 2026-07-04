@@ -1,4 +1,4 @@
-export type TransitMode = "driving" | "transit" | "pickup" | "pickingUp";
+export type TransitMode = "driving" | "walking" | "transit" | "pickup" | "pickingUp";
 
 export type GraduationLevel = 1 | 2 | 3 | 4;
 
@@ -18,6 +18,8 @@ export interface TransitDetails {
   mode: TransitMode;
   /** Driving / picking someone up: estimated drive minutes (guess-first). */
   driveMinutes?: number;
+  /** Walking: estimated door-to-door walk minutes (guess-first). */
+  walkMinutes?: number;
   /** Public transit: the departure time of the bus/train (HH:mm). */
   transitDepartureTime?: string;
   /** Public transit: walk from door to the stop, minutes. */

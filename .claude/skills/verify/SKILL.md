@@ -33,7 +33,10 @@ The full loop to drive (all state in localStorage, no backend):
 
 1. `/` Pulse → "Plan my next arrival"
 2. `/plan` step 1: destination, arrival `input[type=time]`, mode button
-3. step 2: mode details (drive minutes / transit departure / pickup time)
+   (driving / walking / transit / pickup / pickingUp)
+3. step 2: mode details (drive or walk minutes / transit departure /
+   pickup time). Drive and walk blocks carry taskId `drive:`/`walk:` +
+   destination slug, so they're silently measured and learned per route.
 4. step 3: guess-first tasks — select chip → fill minutes → "Lock my
    guess & compare" → choose Keep/Safe/history. IMPORTANT INVARIANT: the
    prior ("Typical person: N min") must NOT be in the DOM before the
