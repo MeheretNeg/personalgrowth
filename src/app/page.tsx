@@ -39,15 +39,15 @@ export default function Pulse() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center gap-8 px-5 py-10">
       <header className="text-center">
-        <p className="text-xs font-bold uppercase tracking-[0.35em] text-accent">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.35em] text-accent">
           Anchor
         </p>
-        <h1 className="mt-1 text-4xl font-black tracking-tight">
+        <h1 className="mt-1 text-4xl font-bold tracking-tight">
           Early is the new on&nbsp;time.
         </h1>
       </header>
 
-      <section className="glass flex flex-col gap-5 p-6">
+      <section className="surface flex flex-col gap-5 p-6">
         {trip?.phase === "done" ? (
           <p className="text-center text-sm text-muted-foreground">
             Last trip: {trip.destination} — debriefed. Ready for the next one.
@@ -59,27 +59,27 @@ export default function Pulse() {
         )}
         <Button
           size="lg"
-          className="h-14 text-lg font-black uppercase tracking-wide brutal-primary bg-primary text-primary-foreground hover:bg-primary/90"
+          className="h-14 rounded-2xl bg-primary text-lg font-bold tracking-tight text-primary-foreground hover:bg-primary/90"
           onClick={() => router.push("/plan")}
         >
           Plan my next arrival
         </Button>
       </section>
 
-      <section className="glass flex items-center justify-between p-4">
+      <section className="surface-soft flex items-center justify-between p-4">
         <div>
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
             Internal clock score
           </p>
-          <p className="text-2xl font-black text-primary">
+          <p className="text-2xl font-bold tabular-nums text-primary">
             {score === null ? "—" : `${score}/100`}
           </p>
         </div>
         <div className="text-right">
-          <p className="text-xs uppercase tracking-widest text-muted-foreground">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
             Arrivals trained
           </p>
-          <p className="text-2xl font-black">{debriefCount}</p>
+          <p className="text-2xl font-bold tabular-nums">{debriefCount}</p>
         </div>
       </section>
 

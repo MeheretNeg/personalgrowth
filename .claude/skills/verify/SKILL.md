@@ -49,6 +49,28 @@ The full loop to drive (all state in localStorage, no backend):
 10. `/stats`: clock score /100, arrival record, learned-task rows
 11. `GET /manifest.webmanifest` → 200, 3 icons, display standalone
 
+## Phase 2 behaviors
+
+- **Graduation**: `anchor:settings` holds `{level: 1..4}`. Levels move ONE
+  step per debrief toward the earned level (`src/lib/graduation.ts`
+  thresholds). Seed `anchor:logs` / `anchor:debriefs` in localStorage to
+  test: 10+ logs with ≤35% error + 3 on-time debriefs → level 2 after the
+  next debrief. A late debrief (delta > 0) resets the streak and steps the
+  level back down.
+- **Level fading in /plan step 3 (tasks)**: L1 always shows the compare
+  card after "Lock my guess & compare". L2 auto-accepts guesses within 40%
+  of median/prior (no compare card). L3+ button reads "Lock it in" and NO
+  prior ever enters the DOM. The guess-first invariant only applies at L1/L2.
+- **Notifications**: grant with `context.grantPermissions(["notifications"])`
+  and stub `window.Notification` via `addInitScript` to record calls. Cues
+  (heads-up ≤2 min before a step, missed-start/overtime nags every 3 min,
+  door-critical on the final staging step) fire from `/execute`; L3 fires
+  only final-staging cues, L4 none.
+- **Behind-plan visibility**: /plan step 4 shows "N min behind" when the
+  timeline starts in the past; /execute always shows the drift pill and a
+  mono mm:ss countdown (block remaining when running, time-to-start when
+  pending).
+
 ## Gotchas
 
 - Playwright `browser.newPage()` per call = isolated localStorage; use one
