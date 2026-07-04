@@ -10,6 +10,7 @@ const KEYS = {
   logs: "anchor:logs",
   debriefs: "anchor:debriefs",
   settings: "anchor:settings",
+  lastTasks: "anchor:lastTasks",
 } as const;
 
 const DEFAULT_SETTINGS: Settings = { earlyBufferMinutes: 10, level: 1 };
@@ -51,3 +52,7 @@ export const appendDebrief = (d: Debrief): Debrief[] => {
 
 export const loadSettings = (): Settings => read<Settings>(KEYS.settings, DEFAULT_SETTINGS);
 export const saveSettings = (s: Settings): void => write(KEYS.settings, s);
+
+/** Task ids from the last locked plan — powers the one-tap "My usual". */
+export const loadLastTaskIds = (): string[] => read<string[]>(KEYS.lastTasks, []);
+export const saveLastTaskIds = (ids: string[]): void => write(KEYS.lastTasks, ids);

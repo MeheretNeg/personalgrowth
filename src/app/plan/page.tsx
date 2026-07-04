@@ -7,7 +7,14 @@ import { Input } from "@/components/ui/input";
 import { VoiceInput } from "@/components/voice-input";
 import { TASK_PRIORS, getPrior } from "@/lib/priors";
 import { buildTimeline, formatTime, timeOnSameDay } from "@/lib/engine";
-import { loadLogs, loadSettings, saveSettings, saveTrip } from "@/lib/store";
+import {
+  loadLastTaskIds,
+  loadLogs,
+  loadSettings,
+  saveLastTaskIds,
+  saveSettings,
+  saveTrip,
+} from "@/lib/store";
 import { personalMedian } from "@/lib/calibration";
 import { PlannedTask, TransitDetails, TransitMode, Trip } from "@/lib/types";
 
@@ -53,6 +60,9 @@ export default function Plan() {
     typeof window === "undefined" ? "train" : (loadSettings().planMode ?? "train"),
   );
   const [now, setNow] = useState<Date | null>(null);
+  const [lastTaskIds] = useState<string[]>(() =>
+    typeof window === "undefined" ? [] : loadLastTaskIds().filter((id) => getPrior(id)),
+  );
 
   useEffect(() => setNow(new Date()), [step]);
 
@@ -126,6 +136,23 @@ export default function Plan() {
         },
       ]);
     }
+  }
+
+  /** The minutes quick plan would use for a task — shown on the chips. */
+  function standardMinutes(taskId: string): number {
+    return personalMedian(logs, taskId) ?? getPrior(taskId)!.p50;
+  }
+
+  function selectUsual() {
+    setSelections(
+      lastTaskIds.map((taskId) => ({
+        taskId,
+        label: getPrior(taskId)!.label,
+        guess: "",
+        revealed: false,
+        ...(planMode === "quick" ? standardFor(taskId) : {}),
+      })),
+    );
   }
 
   function choosePlanMode(m: "train" | "quick") {
@@ -203,6 +230,7 @@ export default function Plan() {
         ? { ...s, taskId: `${s.taskId}:${slug(destination)}` }
         : s,
     );
+    saveLastTaskIds(plannedTasks.map((t) => t.taskId));
     const settings = loadSettings();
     const trip: Trip = {
       id: `trip-${arrivalDate.getTime()}`,
@@ -446,6 +474,18 @@ export default function Plan() {
                   ? "Coach level: your guess is the plan unless it's far off your record — then Anchor steps in."
                   : "Pick what you still need to do, then guess each duration from your gut before seeing what it typically takes. That guess is the rep — this is the gym."}
           </p>
+          {lastTaskIds.length > 0 && selections.length === 0 && (
+            <button onClick={selectUsual} className="surface-active p-3.5 text-left">
+              <span className="block text-sm font-semibold text-primary">
+                My usual — {lastTaskIds.length} tasks, ~
+                {lastTaskIds.reduce((sum, id) => sum + standardMinutes(id), 0)} min
+              </span>
+              <span className="text-xs text-muted-foreground">
+                One tap: same tasks as your last plan
+                {planMode === "quick" ? ", times filled automatically." : "."}
+              </span>
+            </button>
+          )}
           <div className="flex flex-wrap gap-2">
             {TASK_PRIORS.map((t) => {
               const sel = selections.find((s) => s.taskId === t.id);
@@ -458,10 +498,27 @@ export default function Plan() {
                   }`}
                 >
                   {t.label}
+                  {planMode === "quick" && (
+                    <span className={sel ? "text-primary-foreground/70" : "text-muted-foreground"}>
+                      {" "}
+                      · {standardMinutes(t.id)}m
+                    </span>
+                  )}
                 </button>
               );
             })}
           </div>
+          {plannedTasks.length > 0 && (
+            <p className="text-sm font-semibold tabular-nums">
+              Prep total:{" "}
+              <span className="text-primary">
+                {plannedTasks.reduce((sum, t) => sum + t.plannedMinutes, 0)} min
+              </span>
+              <span className="ml-1 text-xs font-normal text-muted-foreground">
+                + travel and buffers on the next screen
+              </span>
+            </p>
+          )}
           {planMode === "train" && selections.some((s) => s.planned === undefined) && (
             <div className="surface-soft flex items-center justify-between gap-3 p-3">
               <p className="text-xs text-muted-foreground">
