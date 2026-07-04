@@ -1,6 +1,19 @@
-# Personal Growth
+# Anchor
 
-A personal growth tracker built with [Next.js](https://nextjs.org), [Tailwind CSS](https://tailwindcss.com), and [shadcn/ui](https://ui.shadcn.com). Define the dimensions of your life (Spiritual, Mental, Physical, Relational, …), anchor each one with a verse or guiding principle, and capture dated notes as you grow.
+A training gym for time blindness — not a crutch. Anchor backward-plans every arrival, trains your internal clock with guess-first estimation, measures reality silently, and fades its own support as you improve. **Early is the new on time.**
+
+Built with [Next.js](https://nextjs.org), Tailwind CSS, and shadcn/ui. Installable on Android as a PWA.
+
+## The loop
+
+```
+PLAN    backward from arrival (Park et al. 2017: backward planning wins)
+LOCK    if-then commitment (Gollwitzer, d≈0.65) + 20s future visualization
+EXECUTE one task visible, time-decay visual, everything else masked
+DEBRIEF early/late by how much — and where the gap came from
+LEARN   your measured medians replace research priors (planning-fallacy fix)
+FADE    as calibration improves, the app does less — graduation is the goal
+```
 
 ## Getting started
 
@@ -9,31 +22,34 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) to see the app.
+Open [http://localhost:3000](http://localhost:3000). On an Android phone, open the deployed URL in Chrome → menu → **Add to Home screen** to install.
 
 ## Deploy on Vercel
 
 [![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/MeheretNeg/personalgrowth)
 
-To connect this repo for instant deployments (every push to `main` goes live, every branch gets a preview URL):
-
-1. Go to [vercel.com/new](https://vercel.com/new) and sign in with your GitHub account.
-2. Import the `MeheretNeg/personalgrowth` repository.
-3. Vercel auto-detects Next.js — no configuration needed. Click **Deploy**.
-
-From then on, every push deploys automatically.
+Import `MeheretNeg/personalgrowth` at [vercel.com/new](https://vercel.com/new) — Next.js is auto-detected, every push to `main` deploys.
 
 ## Project structure
 
 ```
 src/
-  app/               Next.js App Router pages and layout
+  app/
+    page.tsx          Pulse dashboard (single next-action card)
+    plan/             Trip wizard — guess-first estimates, 4 transit modes
+    lock/             If-then chain + episodic future thinking
+    execute/          One task, time-decay block, exit checklist
+    debrief/          Arrival delta + cause attribution
+    stats/            Clock score, arrival record, learned durations
+    manifest.ts       Android PWA manifest
   components/
-    growth-tracker.tsx   Main tracker feature
-    ui/                  shadcn/ui primitives
+    time-decay.tsx    Spatial shrinking-block time display
+    ui/               shadcn/ui primitives
   lib/
-    types.ts         Shared data types (Dimension, Note)
-    storage.ts       localStorage persistence
+    engine.ts         Backward-planning math (pure, API-injectable later)
+    calibration.ts    Personal medians, calibration score, error trend
+    priors.ts         Research-based task duration priors + buffers
+    store.ts          localStorage persistence
 ```
 
-Notes are currently stored in the browser's localStorage. A natural next step is wiring up a database (e.g. Vercel Postgres) and auth for sync across devices.
+Data lives in localStorage (single-device). Phase 2: graduation-level automation, notification escalation. Phase 3: calendar pull, live traffic, NFC door tag (native wrapper).
