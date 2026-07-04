@@ -61,7 +61,11 @@ score, measured-task count, and the on-time streak, one step per debrief in
 either direction — and the app fades per level (L2 only flags far-off
 guesses, L3 plans silently and guards the door, L4 is a scoreboard).
 Notifications escalate during execution: heads-up → it's time → nags →
-door-critical, with vibration; they fade with level too.
+door-critical, with vibration; they fade with level too. A service worker
+(`public/sw.js`) displays the cues system-natively (required on installed
+Android PWAs), reopens the app on notification tap, and serves an offline
+shell.
 
-Phase 3: service-worker push (cues with the screen off), calendar pull,
+Phase 3: web push via a VAPID server (cues with the app fully closed —
+the OS suspends page timers, so this needs a backend), calendar pull,
 live traffic, NFC door tag (native wrapper).

@@ -8,8 +8,10 @@ import { GraduationLevel, TimelineStep } from "./types";
  * levels 1–2 get the full ladder, level 3 only the leave-door guard,
  * level 4 nothing at all.
  *
- * No service worker yet (Phase 3), so system notifications fire only while
- * the app is open; vibration + the in-page countdown carry the rest.
+ * Cues route through the service worker's showNotification (required on
+ * installed Android PWAs), falling back to the Notification constructor.
+ * True screen-off scheduling still needs a push server (Phase 3) — the OS
+ * suspends page timers when the app is fully closed.
  */
 
 export type CueUrgency = "info" | "warn" | "critical";
@@ -46,16 +48,34 @@ export function fireCue(cue: Cue): void {
   } catch {
     /* vibration is best-effort */
   }
-  if ("Notification" in window && Notification.permission === "granted") {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+
+  const options: NotificationOptions = {
+    body: cue.body,
+    tag: cue.key,
+    requireInteraction: cue.urgency === "critical",
+  };
+
+  // Installed Android PWAs can only show system notifications through the
+  // service worker; `new Notification()` throws there. Prefer the worker,
+  // fall back to the constructor (e.g. desktop tab before the SW is ready).
+  const viaConstructor = () => {
     try {
-      new Notification(cue.title, {
-        body: cue.body,
-        tag: cue.key,
-        requireInteraction: cue.urgency === "critical",
-      });
+      new Notification(cue.title, options);
     } catch {
-      /* some platforms require a service worker — in-page cues still show */
+      /* no path available — vibration + in-page cues still carry it */
     }
+  };
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker
+      .getRegistration()
+      .then((reg) => {
+        if (reg) return reg.showNotification(cue.title, options);
+        viaConstructor();
+      })
+      .catch(viaConstructor);
+  } else {
+    viaConstructor();
   }
 }
 

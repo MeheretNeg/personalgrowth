@@ -61,8 +61,12 @@ The full loop to drive (all state in localStorage, no backend):
   card after "Lock my guess & compare". L2 auto-accepts guesses within 40%
   of median/prior (no compare card). L3+ button reads "Lock it in" and NO
   prior ever enters the DOM. The guess-first invariant only applies at L1/L2.
-- **Notifications**: grant with `context.grantPermissions(["notifications"])`
-  and stub `window.Notification` via `addInitScript` to record calls. Cues
+- **Notifications**: grant with `context.grantPermissions(["notifications"])`.
+  Cues prefer the service worker path — stub BOTH
+  `ServiceWorkerRegistration.prototype.showNotification` and
+  `window.Notification` via `addInitScript` to record calls. `/sw.js` must
+  serve 200 with `Cache-Control: no-store` and reach state `activated`
+  (`navigator.serviceWorker.ready`). Cues
   (heads-up ≤2 min before a step, missed-start/overtime nags every 3 min,
   door-critical on the final staging step) fire from `/execute`; L3 fires
   only final-staging cues, L4 none.
