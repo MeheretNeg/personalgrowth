@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
@@ -13,8 +13,17 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Personal Growth",
-  description: "Track the dimensions of your personal growth journey.",
+  title: "Anchor",
+  description:
+    "A training gym for time blindness. Backward-planned timelines, guess-first calibration, and a clock you can see draining — until you don't need it anymore.",
+  appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Anchor" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#101423",
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({

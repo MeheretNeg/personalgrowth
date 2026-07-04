@@ -48,39 +48,46 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Anchor design system — dark-only by design.
+ * Deep navy-slate base (calm, low visual noise), one electric-yellow accent
+ * used decisively for active states, blue for passive info, orange reserved
+ * for the exit/alert state. Neobrutalist active cards + glassmorphic
+ * passive layers via the .brutal / .glass utilities below.
+ */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --background: oklch(0.16 0.02 262);
+  --foreground: oklch(0.97 0.005 250);
+  --card: oklch(0.21 0.025 262);
+  --card-foreground: oklch(0.97 0.005 250);
+  --popover: oklch(0.21 0.025 262);
+  --popover-foreground: oklch(0.97 0.005 250);
+  --primary: oklch(0.88 0.17 96);
+  --primary-foreground: oklch(0.16 0.02 262);
+  --secondary: oklch(0.3 0.03 262);
+  --secondary-foreground: oklch(0.97 0.005 250);
+  --muted: oklch(0.27 0.025 262);
+  --muted-foreground: oklch(0.68 0.02 255);
+  --accent: oklch(0.72 0.14 235);
+  --accent-foreground: oklch(0.16 0.02 262);
+  --destructive: oklch(0.7 0.19 40);
+  --border: oklch(1 0 0 / 14%);
+  --input: oklch(1 0 0 / 16%);
+  --ring: oklch(0.88 0.17 96);
+  --chart-1: oklch(0.88 0.17 96);
+  --chart-2: oklch(0.72 0.14 235);
+  --chart-3: oklch(0.7 0.19 40);
+  --chart-4: oklch(0.6 0.02 255);
+  --chart-5: oklch(0.4 0.03 262);
+  --radius: 0.25rem;
+  --sidebar: oklch(0.21 0.025 262);
+  --sidebar-foreground: oklch(0.97 0.005 250);
+  --sidebar-primary: oklch(0.88 0.17 96);
+  --sidebar-primary-foreground: oklch(0.16 0.02 262);
+  --sidebar-accent: oklch(0.27 0.025 262);
+  --sidebar-accent-foreground: oklch(0.97 0.005 250);
+  --sidebar-border: oklch(1 0 0 / 14%);
+  --sidebar-ring: oklch(0.88 0.17 96);
 }
 
 .dark {
@@ -127,4 +134,43 @@
   html {
     @apply font-sans;
   }
+}
+
+@utility brutal {
+  border: 2px solid var(--foreground);
+  border-radius: var(--radius);
+  box-shadow: 5px 5px 0 0 var(--foreground);
+}
+
+@utility brutal-primary {
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+  box-shadow: 5px 5px 0 0 var(--primary);
+}
+
+@utility brutal-alert {
+  border: 2px solid var(--destructive);
+  border-radius: var(--radius);
+  box-shadow: 5px 5px 0 0 var(--destructive);
+}
+
+@utility glass {
+  background: oklch(1 0 0 / 6%);
+  backdrop-filter: blur(14px);
+  border: 1px solid oklch(1 0 0 / 10%);
+  border-radius: 1rem;
+}
+
+@keyframes anchor-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@utility animate-anchor-pulse {
+  animation: anchor-pulse 1.2s ease-in-out infinite;
 }
