@@ -110,12 +110,19 @@ export default function Execute() {
     const nowIso = new Date().toISOString();
     const current = trip!.timeline[idx];
     const guess = guessFor(trip!, current);
-    if (current.startedAt && guess !== null && current.taskId) {
+    // Always measure reality (medians learn from actuals); a guess of 0
+    // just means no calibration rep to score for this block.
+    if (current.startedAt && current.taskId) {
       const actual = Math.max(
         1,
         Math.round((Date.now() - new Date(current.startedAt).getTime()) / 60_000),
       );
-      appendLog({ taskId: current.taskId, guessMinutes: guess, actualMinutes: actual, at: nowIso });
+      appendLog({
+        taskId: current.taskId,
+        guessMinutes: guess ?? 0,
+        actualMinutes: actual,
+        at: nowIso,
+      });
     }
     const timeline = trip!.timeline.map((s, i) =>
       i === idx ? { ...s, finishedAt: nowIso } : s,

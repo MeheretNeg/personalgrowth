@@ -82,4 +82,10 @@ export interface Debrief {
 export interface Settings {
   earlyBufferMinutes: number;
   level: GraduationLevel;
+  /**
+   * "train" = guess-first reps (the gym). "quick" = tasks are planned
+   * instantly from personal medians / international averages; the clock
+   * still learns silently from measured actuals.
+   */
+  planMode?: "train" | "quick";
 }

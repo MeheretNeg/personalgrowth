@@ -39,8 +39,11 @@ export function estimationErrorPct(guessMinutes: number, actualMinutes: number):
  * graduation levels key off it.
  */
 export function calibrationScore(logs: DurationLog[], window = 10): number | null {
-  if (logs.length === 0) return null;
-  const recent = logs.slice(-window);
+  // Only logs with a real blind guess score the clock — quick-planned
+  // tasks (guess 0) still feed medians but can't measure calibration.
+  const scored = logs.filter((l) => l.guessMinutes > 0);
+  if (scored.length === 0) return null;
+  const recent = scored.slice(-window);
   const avgAbsError =
     recent.reduce((sum, l) => sum + Math.abs(estimationErrorPct(l.guessMinutes, l.actualMinutes)), 0) /
     recent.length;
@@ -49,7 +52,10 @@ export function calibrationScore(logs: DurationLog[], window = 10): number | nul
 
 /** Rolling guess-vs-actual pairs for the stats trend, oldest first. */
 export function errorTrend(logs: DurationLog[], window = 14): { at: string; errorPct: number }[] {
-  return logs.slice(-window).map((l) => ({
+  return logs
+    .filter((l) => l.guessMinutes > 0)
+    .slice(-window)
+    .map((l) => ({
     at: l.at,
     errorPct: estimationErrorPct(l.guessMinutes, l.actualMinutes),
   }));

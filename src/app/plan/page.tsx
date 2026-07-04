@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { VoiceInput } from "@/components/voice-input";
 import { TASK_PRIORS, getPrior } from "@/lib/priors";
 import { buildTimeline, formatTime, timeOnSameDay } from "@/lib/engine";
-import { loadLogs, loadSettings, saveTrip } from "@/lib/store";
+import { loadLogs, loadSettings, saveSettings, saveTrip } from "@/lib/store";
 import { personalMedian } from "@/lib/calibration";
 import { PlannedTask, TransitDetails, TransitMode, Trip } from "@/lib/types";
 
@@ -49,6 +49,9 @@ export default function Plan() {
   const [selections, setSelections] = useState<Selection[]>([]);
   const [logs] = useState(() => (typeof window === "undefined" ? [] : loadLogs()));
   const [level] = useState(() => (typeof window === "undefined" ? 1 : loadSettings().level));
+  const [planMode, setPlanMode] = useState<"train" | "quick">(() =>
+    typeof window === "undefined" ? "train" : (loadSettings().planMode ?? "train"),
+  );
   const [now, setNow] = useState<Date | null>(null);
 
   useEffect(() => setNow(new Date()), [step]);
@@ -96,6 +99,15 @@ export default function Plan() {
     });
   }, [arrivalDate, transit, plannedTasks]);
 
+  /** The no-guess plan for a task: personal median if known, else the average. */
+  function standardFor(taskId: string): Pick<Selection, "planned" | "source"> {
+    const med = personalMedian(logs, taskId);
+    return {
+      planned: med ?? getPrior(taskId)!.p50,
+      source: med !== null ? ("history" as const) : ("prior" as const),
+    };
+  }
+
   function toggleTask(taskId: string) {
     const existing = selections.find((s) => s.taskId === taskId);
     if (existing) {
@@ -104,8 +116,26 @@ export default function Plan() {
       const prior = getPrior(taskId)!;
       setSelections([
         ...selections,
-        { taskId, label: prior.label, guess: "", revealed: false },
+        {
+          taskId,
+          label: prior.label,
+          guess: "",
+          revealed: false,
+          // Quick plan: the time appears the moment the task is tapped.
+          ...(planMode === "quick" ? standardFor(taskId) : {}),
+        },
       ]);
+    }
+  }
+
+  function choosePlanMode(m: "train" | "quick") {
+    setPlanMode(m);
+    saveSettings({ ...loadSettings(), planMode: m });
+    // Switching to quick fills anything still waiting on a guess.
+    if (m === "quick") {
+      setSelections((cur) =>
+        cur.map((s) => (s.planned === undefined ? { ...s, guess: "", ...standardFor(s.taskId) } : s)),
+      );
     }
   }
 
@@ -158,16 +188,9 @@ export default function Plan() {
    */
   function fillWithStandards() {
     setSelections(
-      selections.map((s) => {
-        if (s.planned !== undefined) return s;
-        const med = personalMedian(logs, s.taskId);
-        return {
-          ...s,
-          guess: "",
-          planned: med ?? getPrior(s.taskId)!.p50,
-          source: med !== null ? ("history" as const) : ("prior" as const),
-        };
-      }),
+      selections.map((s) =>
+        s.planned !== undefined ? s : { ...s, guess: "", ...standardFor(s.taskId) },
+      ),
     );
   }
 
@@ -395,12 +418,33 @@ export default function Plan() {
 
       {step === 2 && (
         <section className="flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-1 rounded-full p-1 surface-soft">
+            {(
+              [
+                { id: "train", label: "Train my clock" },
+                { id: "quick", label: "Quick plan" },
+              ] as const
+            ).map((m) => (
+              <button
+                key={m.id}
+                onClick={() => choosePlanMode(m.id)}
+                aria-pressed={planMode === m.id}
+                className={`rounded-full px-3 py-2 text-sm font-semibold transition-colors ${
+                  planMode === m.id ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
           <p className="text-xs text-muted-foreground">
-            {level >= 3
-              ? "Solo level: your guess is the plan. Anchor measures silently and tells you the truth at the debrief."
-              : level === 2
-                ? "Coach level: your guess is the plan unless it's far off your record — then Anchor steps in."
-                : "Pick what you still need to do, then guess each duration from your gut before seeing what it typically takes. That guess is the rep — this is the gym."}
+            {planMode === "quick"
+              ? "Tap tasks — times fill themselves: your measured medians where Anchor knows you, international averages where it doesn't. Your clock still learns from what actually happens; you just skip the guessing reps."
+              : level >= 3
+                ? "Solo level: your guess is the plan. Anchor measures silently and tells you the truth at the debrief."
+                : level === 2
+                  ? "Coach level: your guess is the plan unless it's far off your record — then Anchor steps in."
+                  : "Pick what you still need to do, then guess each duration from your gut before seeing what it typically takes. That guess is the rep — this is the gym."}
           </p>
           <div className="flex flex-wrap gap-2">
             {TASK_PRIORS.map((t) => {
@@ -418,7 +462,7 @@ export default function Plan() {
               );
             })}
           </div>
-          {selections.some((s) => s.planned === undefined) && (
+          {planMode === "train" && selections.some((s) => s.planned === undefined) && (
             <div className="surface-soft flex items-center justify-between gap-3 p-3">
               <p className="text-xs text-muted-foreground">
                 Rushed? Skip the guessing reps — plan the rest with standard
