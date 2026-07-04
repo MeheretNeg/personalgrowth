@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { clearTrip, loadSettings, loadTrip, saveTrip } from "@/lib/store";
 import { formatTime } from "@/lib/engine";
 import { requestNotifyPermission } from "@/lib/notify";
+import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
 import { Trip } from "@/lib/types";
 
 /**
@@ -35,13 +36,15 @@ export default function Lock() {
   function begin() {
     // Ask inside the tap (user gesture) — escalating cues need it. Denied
     // permission is fine: vibration + the in-page countdown still carry it.
-    void requestNotifyPermission();
-    saveTrip({ ...trip!, phase: "executing" });
+    const next: Trip = { ...trip!, phase: "executing" };
+    void requestNotifyPermission().then(() => syncPushSchedule(next, level));
+    saveTrip(next);
     router.push("/execute");
   }
 
   function discard() {
     clearTrip();
+    void clearPushSchedule();
     router.push("/");
   }
 

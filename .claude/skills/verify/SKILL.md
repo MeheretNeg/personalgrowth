@@ -75,6 +75,19 @@ The full loop to drive (all state in localStorage, no backend):
   mono mm:ss countdown (block remaining when running, time-to-start when
   pending).
 
+## Web push (closed-app cues)
+
+Disabled without VAPID env keys (`/api/push/sync` → 503; client no-ops).
+To test the send path end-to-end without a browser push service: generate
+keys with `web-push`'s `generateVAPIDKeys()`, start the server with them
+plus `PUSH_TICK_MS=1000`, then POST a fake subscription (endpoint →
+a local HTTP listener; p256dh = base64url of an uncompressed P-256 public
+key from `crypto.createECDH("prime256v1")`; auth = 16 random bytes
+base64url) with one cue whose `at` is now. Within ~2s the listener gets a
+POST with `content-encoding: aes128gcm` and a `vapid` Authorization
+header. Cues with `at` in the past are dropped at build time by the
+client but sent immediately by the server loop. State file: `.data/push.json`.
+
 ## Gotchas
 
 - Playwright `browser.newPage()` per call = isolated localStorage; use one

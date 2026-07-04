@@ -66,6 +66,20 @@ door-critical, with vibration; they fade with level too. A service worker
 Android PWAs), reopens the app on notification tap, and serves an offline
 shell.
 
-Phase 3: web push via a VAPID server (cues with the app fully closed —
-the OS suspends page timers, so this needs a backend), calendar pull,
-live traffic, NFC door tag (native wrapper).
+Phase 3 (push shipped): with VAPID keys set, cues fire even with the app
+fully closed. The client re-posts its remaining schedule-anchored cues to
+`/api/push/sync` on every trip transition; a server loop
+(`src/lib/push-server.ts`, booted by `src/instrumentation.ts`) sends due
+cues via Web Push, persisting state in `.data/push.json`. Setup:
+
+```bash
+npx web-push generate-vapid-keys
+cp .env.example .env.local   # paste the keys in
+```
+
+Without keys the endpoint returns 503 and the client silently skips push —
+in-page cues, vibration, and the screen wake-lock during execution still
+cover the app-open case. Note: the send loop needs a persistent Node host
+(any `next start` box); on serverless it only runs while an instance is
+warm. Still Phase 3: calendar pull, live traffic, NFC door tag (native
+wrapper).

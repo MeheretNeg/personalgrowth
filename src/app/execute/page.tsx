@@ -7,6 +7,7 @@ import { TimeDecay, formatCountdown } from "@/components/time-decay";
 import { appendLog, loadSettings, loadTrip, saveTrip } from "@/lib/store";
 import { formatTime, minutesUntil } from "@/lib/engine";
 import { cueForStep, fireCue } from "@/lib/notify";
+import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
 import { TimelineStep, Trip } from "@/lib/types";
 
 const EXIT_CHECKLIST = ["Keys", "Wallet", "Phone", "Charger"];
@@ -58,6 +59,28 @@ export default function Execute() {
     }
   }, [now, step, running, isFinalStaging, level]);
 
+  // Time must stay visible: keep the screen awake for the whole execution,
+  // like turn-by-turn navigation. Best-effort — re-acquired on tab return.
+  useEffect(() => {
+    let lock: WakeLockSentinel | null = null;
+    const acquire = async () => {
+      try {
+        if ("wakeLock" in navigator && document.visibilityState === "visible") {
+          lock = await navigator.wakeLock.request("screen");
+        }
+      } catch {
+        /* low battery or unsupported — the OS decides */
+      }
+    };
+    void acquire();
+    const onVisible = () => void acquire();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      void lock?.release().catch(() => {});
+    };
+  }, []);
+
   if (!trip) return null;
 
   // Ahead/behind: measured against the locked plan, not vibes.
@@ -70,6 +93,8 @@ export default function Execute() {
   function update(next: Trip) {
     saveTrip(next);
     setTrip(next);
+    // Re-anchor the closed-app push schedule to the new trip state.
+    void syncPushSchedule(next, level);
   }
 
   function start() {
@@ -98,7 +123,8 @@ export default function Execute() {
   }
 
   function toDebrief() {
-    update({ ...trip!, phase: "debrief" });
+    saveTrip({ ...trip!, phase: "debrief" });
+    void clearPushSchedule();
     router.push("/debrief");
   }
 
