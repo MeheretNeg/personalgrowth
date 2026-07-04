@@ -49,6 +49,45 @@ The full loop to drive (all state in localStorage, no backend):
 10. `/stats`: clock score /100, arrival record, learned-task rows
 11. `GET /manifest.webmanifest` → 200, 3 icons, display standalone
 
+## Phase 2 behaviors
+
+- **Graduation**: `anchor:settings` holds `{level: 1..4}`. Levels move ONE
+  step per debrief toward the earned level (`src/lib/graduation.ts`
+  thresholds). Seed `anchor:logs` / `anchor:debriefs` in localStorage to
+  test: 10+ logs with ≤35% error + 3 on-time debriefs → level 2 after the
+  next debrief. A late debrief (delta > 0) resets the streak and steps the
+  level back down.
+- **Level fading in /plan step 3 (tasks)**: L1 always shows the compare
+  card after "Lock my guess & compare". L2 auto-accepts guesses within 40%
+  of median/prior (no compare card). L3+ button reads "Lock it in" and NO
+  prior ever enters the DOM. The guess-first invariant only applies at L1/L2.
+- **Notifications**: grant with `context.grantPermissions(["notifications"])`.
+  Cues prefer the service worker path — stub BOTH
+  `ServiceWorkerRegistration.prototype.showNotification` and
+  `window.Notification` via `addInitScript` to record calls. `/sw.js` must
+  serve 200 with `Cache-Control: no-store` and reach state `activated`
+  (`navigator.serviceWorker.ready`). Cues
+  (heads-up ≤2 min before a step, missed-start/overtime nags every 3 min,
+  door-critical on the final staging step) fire from `/execute`; L3 fires
+  only final-staging cues, L4 none.
+- **Behind-plan visibility**: /plan step 4 shows "N min behind" when the
+  timeline starts in the past; /execute always shows the drift pill and a
+  mono mm:ss countdown (block remaining when running, time-to-start when
+  pending).
+
+## Web push (closed-app cues)
+
+Disabled without VAPID env keys (`/api/push/sync` → 503; client no-ops).
+To test the send path end-to-end without a browser push service: generate
+keys with `web-push`'s `generateVAPIDKeys()`, start the server with them
+plus `PUSH_TICK_MS=1000`, then POST a fake subscription (endpoint →
+a local HTTP listener; p256dh = base64url of an uncompressed P-256 public
+key from `crypto.createECDH("prime256v1")`; auth = 16 random bytes
+base64url) with one cue whose `at` is now. Within ~2s the listener gets a
+POST with `content-encoding: aes128gcm` and a `vapid` Authorization
+header. Cues with `at` in the past are dropped at build time by the
+client but sent immediately by the server loop. State file: `.data/push.json`.
+
 ## Gotchas
 
 - Playwright `browser.newPage()` per call = isolated localStorage; use one

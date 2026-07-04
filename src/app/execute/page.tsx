@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { TimeDecay } from "@/components/time-decay";
-import { appendLog, loadTrip, saveTrip } from "@/lib/store";
+import { TimeDecay, formatCountdown } from "@/components/time-decay";
+import { appendLog, loadSettings, loadTrip, saveTrip } from "@/lib/store";
 import { formatTime, minutesUntil } from "@/lib/engine";
+import { cueForStep, fireCue } from "@/lib/notify";
+import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
 import { TimelineStep, Trip } from "@/lib/types";
 
 const EXIT_CHECKLIST = ["Keys", "Wallet", "Phone", "Charger"];
@@ -23,6 +25,8 @@ export default function Execute() {
   const [trip, setTrip] = useState<Trip | null>(null);
   const [now, setNow] = useState(() => new Date());
   const [checked, setChecked] = useState<string[]>([]);
+  const [level] = useState(() => (typeof window === "undefined" ? 1 : loadSettings().level));
+  const firedCues = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     const t = loadTrip();
@@ -35,25 +39,62 @@ export default function Execute() {
     return () => clearInterval(id);
   }, [router]);
 
-  if (!trip) return null;
-
-  const idx = trip.currentStepIndex;
-  const done = idx >= trip.timeline.length;
-  const step = done ? null : trip.timeline[idx];
+  const idx = trip?.currentStepIndex ?? 0;
+  const done = !trip || idx >= trip.timeline.length;
+  const step = done ? null : trip!.timeline[idx];
   const running = !!step?.startedAt;
+
+  const isFinalStaging =
+    !!trip &&
+    step?.kind === "staging" &&
+    trip.timeline.slice(idx + 1).every((s) => s.kind !== "prep");
+
+  // Escalating cues: heads-up → it's time → nags → door-critical.
+  useEffect(() => {
+    if (!step) return;
+    const cue = cueForStep({ step, running, isFinalStaging, now, level });
+    if (cue && !firedCues.current.has(cue.key)) {
+      firedCues.current.add(cue.key);
+      fireCue(cue);
+    }
+  }, [now, step, running, isFinalStaging, level]);
+
+  // Time must stay visible: keep the screen awake for the whole execution,
+  // like turn-by-turn navigation. Best-effort — re-acquired on tab return.
+  useEffect(() => {
+    let lock: WakeLockSentinel | null = null;
+    const acquire = async () => {
+      try {
+        if ("wakeLock" in navigator && document.visibilityState === "visible") {
+          lock = await navigator.wakeLock.request("screen");
+        }
+      } catch {
+        /* low battery or unsupported — the OS decides */
+      }
+    };
+    void acquire();
+    const onVisible = () => void acquire();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      void lock?.release().catch(() => {});
+    };
+  }, []);
+
+  if (!trip) return null;
 
   // Ahead/behind: measured against the locked plan, not vibes.
   const driftMin = step
     ? Math.round(-minutesUntil(running ? step.endsAt : step.startsAt, now))
     : 0;
-
-  const isFinalStaging =
-    step?.kind === "staging" &&
-    trip.timeline.slice(idx + 1).every((s) => s.kind !== "prep");
+  const behind = driftMin >= 1;
+  const ahead = driftMin <= -1;
 
   function update(next: Trip) {
     saveTrip(next);
     setTrip(next);
+    // Re-anchor the closed-app push schedule to the new trip state.
+    void syncPushSchedule(next, level);
   }
 
   function start() {
@@ -82,19 +123,21 @@ export default function Execute() {
   }
 
   function toDebrief() {
-    update({ ...trip!, phase: "debrief" });
+    saveTrip({ ...trip!, phase: "debrief" });
+    void clearPushSchedule();
     router.push("/debrief");
   }
 
-  const overdue = step && !running && minutesUntil(step.startsAt, now) <= 0;
+  const secsToStart = step ? minutesUntil(step.startsAt, now) * 60 : 0;
+  const overdueStart = step && !running && secsToStart <= 0;
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-5 px-5 py-8">
+    <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col gap-4 px-5 py-8">
       <header className="flex items-baseline justify-between">
-        <p className="text-xs font-bold uppercase tracking-[0.35em] text-accent">Execute</p>
-        <p className="text-sm font-bold">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-accent">Execute</p>
+        <p className="text-sm font-medium text-muted-foreground">
           {trip.destination} ·{" "}
-          <span className="text-primary">
+          <span className="font-semibold text-primary">
             {formatTime(new Date(new Date(trip.arrivalTime).getTime() - trip.earlyBufferMinutes * 60_000))}
           </span>
         </p>
@@ -102,26 +145,40 @@ export default function Execute() {
 
       {!done && step && (
         <>
-          {Math.abs(driftMin) >= 2 && (
-            <p
-              className={`p-2 text-center text-sm font-black uppercase tracking-wide ${
-                driftMin > 0 ? "brutal-alert text-destructive" : "glass text-primary"
-              }`}
-            >
-              {driftMin > 0 ? `${driftMin} min behind plan` : `${-driftMin} min ahead — keep it`}
-            </p>
-          )}
+          {/* Always-visible plan drift — the number the user asked to SEE. */}
+          <div
+            className={`flex items-center justify-between rounded-full px-4 py-2.5 text-sm font-semibold ${
+              behind
+                ? "bg-destructive/15 text-destructive"
+                : ahead
+                  ? "bg-primary/12 text-primary"
+                  : "surface-soft text-muted-foreground"
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            <span>
+              {behind
+                ? `${driftMin} min behind plan`
+                : ahead
+                  ? `${-driftMin} min ahead of plan`
+                  : "On plan"}
+            </span>
+            <span className={`text-xs font-medium ${behind ? "" : "text-muted-foreground"}`}>
+              {behind ? "chop chop — make it back" : ahead ? "keep it, don't spend it" : "stay on the block"}
+            </span>
+          </div>
 
           <section
             className={`${
-              isFinalStaging ? "brutal-alert" : "brutal-primary"
-            } flex min-h-[24rem] flex-col justify-between gap-4 bg-card p-6`}
+              isFinalStaging ? "surface-alert" : "surface-active"
+            } flex min-h-[26rem] flex-col justify-between gap-4 p-6`}
           >
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
                 Only this. Now.
               </p>
-              <h2 className="mt-1 text-3xl font-black tracking-tight">{step.label}</h2>
+              <h2 className="mt-1 text-3xl font-bold tracking-tight">{step.label}</h2>
               <p className="mt-1 text-sm text-muted-foreground">
                 {formatTime(step.startsAt)} → {formatTime(step.endsAt)}
               </p>
@@ -130,11 +187,22 @@ export default function Execute() {
             {running ? (
               <TimeDecay plannedMinutes={step.plannedMinutes} startedAt={step.startedAt!} now={now} />
             ) : (
-              <p className={`text-center text-lg font-bold ${overdue ? "text-destructive animate-anchor-pulse" : ""}`}>
-                {overdue
-                  ? "It's time. Tap start."
-                  : `Starts in ${Math.ceil(minutesUntil(step.startsAt, now))} min`}
-              </p>
+              <div className="flex flex-col items-center gap-1 py-6 text-center">
+                <p
+                  className={`font-mono text-6xl font-bold tabular-nums tracking-tight ${
+                    overdueStart ? "text-destructive animate-anchor-pulse" : ""
+                  }`}
+                >
+                  {formatCountdown(secsToStart)}
+                </p>
+                <p
+                  className={`text-[11px] font-semibold uppercase tracking-[0.2em] ${
+                    overdueStart ? "text-destructive" : "text-muted-foreground"
+                  }`}
+                >
+                  {overdueStart ? "past start — tap start now" : "until this block starts"}
+                </p>
+              </div>
             )}
 
             {isFinalStaging && running && (
@@ -147,10 +215,10 @@ export default function Execute() {
                         c.includes(item) ? c.filter((x) => x !== item) : [...c, item],
                       )
                     }
-                    className={`px-4 py-2 text-sm font-black uppercase ${
+                    className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
                       checked.includes(item)
-                        ? "brutal bg-foreground text-background"
-                        : "glass text-foreground"
+                        ? "bg-foreground text-background"
+                        : "surface-soft text-foreground"
                     }`}
                   >
                     {checked.includes(item) ? "✓ " : ""}
@@ -163,7 +231,7 @@ export default function Execute() {
             {running ? (
               <Button
                 size="lg"
-                className={`h-16 text-lg font-black uppercase tracking-wide ${
+                className={`h-16 rounded-2xl text-lg font-bold tracking-tight ${
                   isFinalStaging
                     ? "bg-destructive text-white hover:bg-destructive/90"
                     : "bg-primary text-primary-foreground hover:bg-primary/90"
@@ -175,7 +243,7 @@ export default function Execute() {
             ) : (
               <Button
                 size="lg"
-                className="h-16 bg-primary text-lg font-black uppercase tracking-wide text-primary-foreground hover:bg-primary/90"
+                className="h-16 rounded-2xl bg-primary text-lg font-bold tracking-tight text-primary-foreground hover:bg-primary/90"
                 onClick={start}
               >
                 Start
@@ -185,11 +253,11 @@ export default function Execute() {
 
           {/* Heavy masking: the future exists, but only just. */}
           {trip.timeline.length > idx + 1 && (
-            <section className="flex flex-col gap-2 opacity-60 blur-[2.5px] select-none" aria-hidden>
+            <section className="flex flex-col gap-2 opacity-55 blur-[2px] select-none" aria-hidden>
               {trip.timeline.slice(idx + 1, idx + 4).map((s) => (
-                <div key={s.id} className="glass flex justify-between p-3 text-sm">
+                <div key={s.id} className="surface-soft flex justify-between p-3 text-sm">
                   <span>{s.label}</span>
-                  <span>{formatTime(s.startsAt)}</span>
+                  <span className="text-muted-foreground">{formatTime(s.startsAt)}</span>
                 </div>
               ))}
             </section>
@@ -198,15 +266,15 @@ export default function Execute() {
       )}
 
       {done && (
-        <section className="brutal-primary flex flex-col gap-4 bg-card p-6 text-center">
-          <h2 className="text-2xl font-black">Anchor dropped.</h2>
+        <section className="surface-active flex flex-col gap-4 p-6 text-center">
+          <h2 className="text-2xl font-bold tracking-tight">Anchor dropped.</h2>
           <p className="text-sm text-muted-foreground">
             The plan is finished. The only question left is the one that trains
             your clock: when did you actually get there?
           </p>
           <Button
             size="lg"
-            className="h-14 bg-primary font-black uppercase text-primary-foreground hover:bg-primary/90"
+            className="h-14 rounded-2xl bg-primary font-bold text-primary-foreground hover:bg-primary/90"
             onClick={toDebrief}
           >
             I&apos;ve arrived — debrief
