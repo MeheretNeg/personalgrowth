@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { VoiceInput } from "@/components/voice-input";
 import { TASK_PRIORS, getPrior } from "@/lib/priors";
 import { buildTimeline, formatTime, timeOnSameDay } from "@/lib/engine";
 import { loadLogs, loadSettings, saveTrip } from "@/lib/store";
@@ -233,11 +234,14 @@ export default function Plan() {
         <section className="flex flex-col gap-4">
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Destination
-            <Input
-              value={destination}
-              onChange={(e) => setDestination(e.target.value)}
-              placeholder="e.g. Work, Dentist, Airport"
-            />
+            <div className="flex items-center gap-2">
+              <Input
+                value={destination}
+                onChange={(e) => setDestination(e.target.value)}
+                placeholder="e.g. Work, Dentist, Airport"
+              />
+              <VoiceInput label="Say the destination" onResult={setDestination} />
+            </div>
           </label>
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Must arrive by
