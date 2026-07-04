@@ -151,3 +151,41 @@ export function buildTimeline(input: TimelineInput): TimelineResult {
 export function minutesUntil(iso: string, now: Date): number {
   return (new Date(iso).getTime() - now.getTime()) / 60_000;
 }
+
+/**
+ * Recovery move: when the plan has collapsed mid-execution, rebuild the
+ * remaining timeline against the SAME anchor, optionally dropping prep
+ * tasks. Failure routes back into the loop instead of out of it — a
+ * winnable schedule beats a dead one being nagged about.
+ */
+export function rebuildRemaining(
+  timeline: TimelineStep[],
+  fromIndex: number,
+  keepTaskIds: Set<string>,
+): { timeline: TimelineStep[]; startAt: Date } {
+  const remaining = timeline.slice(fromIndex);
+  const kept = remaining.filter(
+    (s) => s.kind !== "prep" || (s.taskId !== undefined && keepTaskIds.has(s.taskId)),
+  );
+  // The anchor is immovable: walk backward from the original chain end.
+  let end = new Date(remaining[remaining.length - 1].endsAt);
+  const rebuilt: TimelineStep[] = [];
+  for (let i = kept.length - 1; i >= 0; i--) {
+    const s = kept[i];
+    const start = addMinutes(end, -s.plannedMinutes);
+    rebuilt.push({
+      ...s,
+      startsAt: start.toISOString(),
+      endsAt: end.toISOString(),
+      ifThen: `When the ${formatTime(start)} alert fires, then I start "${s.label.toLowerCase()}" — nothing else first.`,
+      startedAt: undefined,
+      finishedAt: undefined,
+    });
+    end = start;
+  }
+  rebuilt.reverse();
+  return {
+    timeline: [...timeline.slice(0, fromIndex), ...rebuilt],
+    startAt: new Date(rebuilt[0].startsAt),
+  };
+}

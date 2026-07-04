@@ -63,10 +63,27 @@ async function getSubscription(create: boolean): Promise<PushSubscription | null
  * the right anchor. Same level fading as the in-page ladder.
  */
 export function buildPushCues(trip: Trip, level: GraduationLevel, now: Date): PushCue[] {
-  if (level >= 4 || trip.phase !== "executing") return [];
+  // "locked" = armed for a scheduled start: the same schedule-anchored cues
+  // apply — the first one IS the wake-up call to begin.
+  if (level >= 4 || (trip.phase !== "executing" && trip.phase !== "locked")) return [];
   const cues: PushCue[] = [];
   const horizon = now.getTime() + 5_000; // never schedule into the past
   const idx = trip.currentStepIndex;
+
+  // Close the learning loop even if the app never gets reopened: nudge the
+  // debrief shortly after required arrival. Cleared the moment they debrief.
+  const arrival = new Date(trip.arrivalTime).getTime();
+  for (const [i, offsetMin] of [5, 25].entries()) {
+    const at = arrival + offsetMin * 60_000;
+    if (at > horizon) {
+      cues.push({
+        at: new Date(at).toISOString(),
+        title: "Did you make it?",
+        body: "30 seconds to log it — the gap (or the win) is the lesson.",
+        tag: `debrief-${trip.id}-${i}`,
+      });
+    }
+  }
 
   for (let i = idx; i < trip.timeline.length; i++) {
     const step = trip.timeline[i];
@@ -143,6 +160,30 @@ export async function syncPushSchedule(trip: Trip, level: GraduationLevel): Prom
   const sub = await getSubscription(true);
   if (!sub) return;
   await post(sub, buildPushCues(trip, level, new Date()));
+}
+
+/** Replace the schedule with an arbitrary cue list (e.g. the plan nudge). */
+export async function syncCues(cues: PushCue[]): Promise<void> {
+  const sub = await getSubscription(false);
+  if (!sub) return;
+  await post(sub, cues);
+}
+
+/**
+ * Habit anchor: after a debrief, one evening nudge to plan the next
+ * arrival while calm — implementation intentions formed in advance work
+ * best, and prospective memory is the deficit being trained.
+ */
+export function planNudgeCue(now: Date): PushCue {
+  const at = new Date(now);
+  at.setHours(20, 30, 0, 0);
+  if (at.getTime() <= now.getTime()) at.setDate(at.getDate() + 1);
+  return {
+    at: at.toISOString(),
+    title: "Where do you need to be tomorrow?",
+    body: "Two minutes of planning tonight beats planning 13 minutes behind.",
+    tag: "plan-nudge",
+  };
 }
 
 /** Drop everything scheduled (arrived, debriefed, or plan discarded). */

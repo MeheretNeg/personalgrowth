@@ -91,6 +91,26 @@ The full loop to drive (all state in localStorage, no backend):
   mono mm:ss countdown (block remaining when running, time-to-start when
   pending).
 
+## Psychological-loop features (Phase 4)
+
+- **Lock gate**: the 20s visualization is enforced — click "Start the 20
+  seconds", then `page.clock.fastForward("00:25")` before "Timeline
+  locked — begin" appears. When the first block is >20 min away an
+  "Arm it — wake me at HH:MM" option appears: trip stays phase "locked"
+  (the waiting room shows a countdown + "Start now instead"), and push
+  cues are synced for the locked phase too.
+- **Replan from now**: on /execute, behind ≥3 min with prep remaining
+  shows "Replan from now". Dialog lists remaining prep with tap-to-cut,
+  live fits/over indicator (anchor never moves), confirm rebuilds
+  remaining steps backward from the anchor and resets startedAt.
+- **Rewards**: finishing a block under plan flashes "+N min banked" (5s);
+  debrief + Pulse surface the on-time streak at ≥2.
+- **Debrief loop-closer**: buildPushCues adds "Did you make it?" pushes at
+  arrival +5/+25 (survive out-the-door; cleared on debrief). Debrief save
+  schedules one evening plan-nudge cue (20:30 local) via syncCues.
+- **Exit checklist** is editable (✎ chip on the final staging step),
+  stored in settings.exitChecklist.
+
 ## Web push (closed-app cues)
 
 Disabled without VAPID env keys (`/api/push/sync` → 503; client no-ops).
