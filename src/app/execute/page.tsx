@@ -17,7 +17,8 @@ function guessFor(trip: Trip, step: TimelineStep): number | null {
   if (!step.taskId) return null;
   if (step.taskId.startsWith("drive:")) return trip.transit.driveMinutes ?? null;
   const task = trip.tasks.find((t) => t.taskId === step.taskId);
-  return task ? task.guessMinutes : null;
+  // No guess (planned from standard times) → no calibration rep to score.
+  return task && task.guessMinutes > 0 ? task.guessMinutes : null;
 }
 
 export default function Execute() {

@@ -61,6 +61,13 @@ The full loop to drive (all state in localStorage, no backend):
   card after "Lock my guess & compare". L2 auto-accepts guesses within 40%
   of median/prior (no compare card). L3+ button reads "Lock it in" and NO
   prior ever enters the DOM. The guess-first invariant only applies at L1/L2.
+- **Standard-times escape hatch**: in /plan step 3, "Use standard times"
+  fills every un-guessed task with the personal median (source "your
+  history") or the international-average p50 (source "typical"). Those
+  tasks carry guessMinutes 0 and are excluded from calibration logging in
+  /execute. The guess-first invariant doesn't apply to hatch-filled tasks
+  (the user explicitly skipped the rep); the compare card still never
+  appears for them.
 - **Notifications**: grant with `context.grantPermissions(["notifications"])`.
   Cues prefer the service worker path — stub BOTH
   `ServiceWorkerRegistration.prototype.showNotification` and
