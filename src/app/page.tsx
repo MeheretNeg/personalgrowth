@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { loadTrip, loadLogs, loadDebriefs } from "@/lib/store";
+import { loadTrip, loadLogs, loadDebriefs, loadSettings, loadSolo } from "@/lib/store";
 import { calibrationScore } from "@/lib/calibration";
-import { onTimeStreak } from "@/lib/graduation";
+import { onTimeRate, onTimeStreak } from "@/lib/graduation";
 import { Trip } from "@/lib/types";
 
 const PHASE_ROUTE: Record<string, string> = {
@@ -22,6 +22,9 @@ export default function Pulse() {
   const [score, setScore] = useState<number | null>(null);
   const [debriefCount, setDebriefCount] = useState(0);
   const [streak, setStreak] = useState(0);
+  const [rate, setRate] = useState({ hit: 0, of: 0 });
+  const [level, setLevel] = useState(1);
+  const [soloActive, setSoloActive] = useState<{ destination: string; arrivalTime: string } | null>(null);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -35,6 +38,9 @@ export default function Pulse() {
     const debriefs = loadDebriefs();
     setDebriefCount(debriefs.length);
     setStreak(onTimeStreak(debriefs));
+    setRate(onTimeRate(debriefs));
+    setLevel(loadSettings().level);
+    setSoloActive(loadSolo());
     setReady(true);
   }, [router]);
 
@@ -68,6 +74,22 @@ export default function Pulse() {
         >
           Plan my next arrival
         </Button>
+        {soloActive ? (
+          <button onClick={() => router.push("/solo")} className="surface-active p-3 text-sm font-semibold text-primary">
+            Free solo running: {soloActive.destination} by{" "}
+            {new Date(soloActive.arrivalTime).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}{" "}
+            — tap when you arrive
+          </button>
+        ) : (
+          level >= 3 && (
+            <button onClick={() => router.push("/solo")} className="surface-soft p-3 text-sm font-semibold">
+              Free solo — no timeline, just your clock
+              <span className="block text-xs font-normal text-muted-foreground">
+                The graduation exam. Unlocked at Solo level.
+              </span>
+            </button>
+          )
+        )}
       </section>
 
       <section className="surface-soft flex items-center justify-between p-4">
@@ -87,10 +109,17 @@ export default function Pulse() {
         </div>
       </section>
 
-      {streak >= 2 && (
+      {streak >= 2 ? (
         <p className="rounded-full bg-primary/12 px-4 py-2 text-center text-sm font-bold text-primary">
-          🔥 {streak} on-time arrivals in a row — don&apos;t break the chain
+          🔥 {streak} on-time arrivals in a row — keep it rolling
         </p>
+      ) : (
+        rate.of >= 5 &&
+        rate.hit > 0 && (
+          <p className="surface-soft rounded-full px-4 py-2 text-center text-sm font-semibold text-muted-foreground">
+            {rate.hit} of your last {rate.of} on time — the record&apos;s still yours
+          </p>
+        )
       )}
 
       <Link

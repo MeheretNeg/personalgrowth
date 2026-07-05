@@ -11,6 +11,7 @@ const KEYS = {
   debriefs: "anchor:debriefs",
   settings: "anchor:settings",
   lastTasks: "anchor:lastTasks",
+  solo: "anchor:solo",
 } as const;
 
 const DEFAULT_SETTINGS: Settings = { earlyBufferMinutes: 10, level: 1 };
@@ -56,3 +57,16 @@ export const saveSettings = (s: Settings): void => write(KEYS.settings, s);
 /** Task ids from the last locked plan — powers the one-tap "My usual". */
 export const loadLastTaskIds = (): string[] => read<string[]>(KEYS.lastTasks, []);
 export const saveLastTaskIds = (ids: string[]): void => write(KEYS.lastTasks, ids);
+
+/** Free solo (Level 3+): destination + required time, no timeline — the
+ * internal clock alone. Graduation demonstrated, not asserted. */
+export interface SoloTrip {
+  destination: string;
+  arrivalTime: string; // ISO
+  startedAt: string; // ISO
+}
+export const loadSolo = (): SoloTrip | null => read<SoloTrip | null>(KEYS.solo, null);
+export const saveSolo = (s: SoloTrip): void => write(KEYS.solo, s);
+export const clearSolo = (): void => {
+  if (typeof window !== "undefined") window.localStorage.removeItem(KEYS.solo);
+};

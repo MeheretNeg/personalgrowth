@@ -38,10 +38,19 @@ export function estimationErrorPct(guessMinutes: number, actualMinutes: number):
  * reality lately. 100 = perfect internal clock. This is THE trained metric —
  * graduation levels key off it.
  */
+/**
+ * Logs that can honestly score the clock: a real blind guess, and long
+ * enough that whole-minute rounding isn't the whole signal (a 2-minute
+ * task measured at 1:20 rounds to ±50% error — pure quantization noise).
+ */
+export function scorableLogs(logs: DurationLog[]): DurationLog[] {
+  return logs.filter(
+    (l) => l.guessMinutes > 0 && Math.max(l.guessMinutes, l.actualMinutes) >= 5,
+  );
+}
+
 export function calibrationScore(logs: DurationLog[], window = 10): number | null {
-  // Only logs with a real blind guess score the clock — quick-planned
-  // tasks (guess 0) still feed medians but can't measure calibration.
-  const scored = logs.filter((l) => l.guessMinutes > 0);
+  const scored = scorableLogs(logs);
   if (scored.length === 0) return null;
   const recent = scored.slice(-window);
   const avgAbsError =
@@ -50,10 +59,41 @@ export function calibrationScore(logs: DurationLog[], window = 10): number | nul
   return Math.max(0, Math.round(100 - avgAbsError));
 }
 
+/**
+ * Signed bias: positive = you guess short (the time-blindness signature).
+ * Lateness comes almost entirely from underestimation, so the direction
+ * matters more than the magnitude.
+ */
+export function meanSignedErrorPct(logs: DurationLog[], window = 10): number | null {
+  const scored = scorableLogs(logs);
+  if (scored.length < 3) return null;
+  const recent = scored.slice(-window);
+  return Math.round(
+    recent.reduce((s, l) => s + estimationErrorPct(l.guessMinutes, l.actualMinutes), 0) /
+      recent.length,
+  );
+}
+
+/**
+ * What to PLAN with (~p75 of recent actuals): task durations are
+ * right-skewed, so planning at the median means ~50% overrun odds per
+ * task — the planning fallacy the app exists to fix. The median stays the
+ * display/calibration reference; this is the buffer-aware number.
+ */
+export function planningMinutes(logs: DurationLog[], taskId: string): number | null {
+  const mine = logsFor(logs, taskId);
+  if (mine.length < MIN_LOGS_FOR_HISTORY) return null;
+  const recent = mine
+    .slice(-8)
+    .map((l) => l.actualMinutes)
+    .sort((a, b) => a - b);
+  const idx = Math.min(recent.length - 1, Math.ceil(0.75 * recent.length) - 1);
+  return Math.round(recent[Math.max(0, idx)]);
+}
+
 /** Rolling guess-vs-actual pairs for the stats trend, oldest first. */
 export function errorTrend(logs: DurationLog[], window = 14): { at: string; errorPct: number }[] {
-  return logs
-    .filter((l) => l.guessMinutes > 0)
+  return scorableLogs(logs)
     .slice(-window)
     .map((l) => ({
     at: l.at,

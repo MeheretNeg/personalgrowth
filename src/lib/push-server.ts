@@ -70,7 +70,19 @@ async function tick(): Promise<void> {
   const s = state();
   const now = Date.now();
   let dirty = false;
+  const STALE_MS = 10 * 60_000;
   for (const [endpoint, entry] of [...s.entries]) {
+    // A cue 10+ minutes past is noise, not help — a "leave now" from before
+    // a server restart must never fire mid-afternoon. Drop, don't send.
+    const fresh = entry.cues.filter((c) => new Date(c.at).getTime() > now - STALE_MS);
+    if (fresh.length !== entry.cues.length) {
+      entry.cues = fresh;
+      dirty = true;
+      if (fresh.length === 0) {
+        s.entries.delete(endpoint);
+        continue;
+      }
+    }
     const due = entry.cues.filter((c) => new Date(c.at).getTime() <= now);
     if (due.length === 0) continue;
     dirty = true;

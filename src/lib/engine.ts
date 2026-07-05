@@ -91,15 +91,27 @@ function travelChain(transit: TransitDetails): BackwardBlock[] {
   }
 }
 
+/**
+ * A departure/pickup clock-time must land BEFORE the arrival it serves.
+ * Without this, planning at 23:00 for a 00:30 arrival puts the 23:45 bus a
+ * full day late — timeline, wake-up and every cue silently wrong.
+ */
+function rollBeforeArrival(anchor: Date, arrival: Date): Date {
+  const a = new Date(anchor);
+  while (a.getTime() > arrival.getTime()) a.setDate(a.getDate() - 1);
+  while (a.getTime() <= arrival.getTime() - 24 * 3600_000) a.setDate(a.getDate() + 1);
+  return a;
+}
+
 /** The moment the travel chain must END at, per mode. */
 function anchorTime(input: TimelineInput, targetArrival: Date): Date {
   const { transit } = input;
   if (transit.mode === "transit" && transit.transitDepartureTime) {
     // Anchored to the vehicle's departure — arrival math is the schedule's job.
-    return timeOnSameDay(transit.transitDepartureTime, input.arrival);
+    return rollBeforeArrival(timeOnSameDay(transit.transitDepartureTime, input.arrival), input.arrival);
   }
   if (transit.mode === "pickup" && transit.pickupTime) {
-    return timeOnSameDay(transit.pickupTime, input.arrival);
+    return rollBeforeArrival(timeOnSameDay(transit.pickupTime, input.arrival), input.arrival);
   }
   return targetArrival;
 }
@@ -178,7 +190,9 @@ export function rebuildRemaining(
       startsAt: start.toISOString(),
       endsAt: end.toISOString(),
       ifThen: `When the ${formatTime(start)} alert fires, then I start "${s.label.toLowerCase()}" — nothing else first.`,
-      startedAt: undefined,
+      // A block already in flight keeps its real start — resetting it would
+      // re-log a 15-minute shower as 2 minutes and bias the medians short.
+      startedAt: kept[i] === remaining[0] ? s.startedAt : undefined,
       finishedAt: undefined,
     });
     end = start;
