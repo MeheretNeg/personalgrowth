@@ -9,8 +9,16 @@ import {
   errorTrend,
   personalMedian,
 } from "@/lib/calibration";
-import { LEVELS, levelProgress } from "@/lib/graduation";
+import { LEVELS, levelProgress, onTimeStreak } from "@/lib/graduation";
 import { Debrief, DurationLog, GraduationLevel } from "@/lib/types";
+
+function historyDate(iso: string): string {
+  return new Date(iso).toLocaleDateString(undefined, {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
 
 function labelFor(taskId: string, logs: DurationLog[]): string {
   if (taskId.startsWith("drive:"))
@@ -128,7 +136,51 @@ export default function Stats() {
             Average: <b>{Math.abs(avgDelta)} min {avgDelta <= 0 ? "early" : "late"}</b>
           </p>
         )}
+        {onTimeStreak(debriefs) >= 2 && (
+          <p className="mt-2 rounded-full bg-primary/12 px-4 py-1.5 text-center text-sm font-bold text-primary">
+            🔥 {onTimeStreak(debriefs)} on-time arrivals in a row
+          </p>
+        )}
       </section>
+
+      {debriefs.length > 0 && (
+        <section className="surface p-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            Arrival history
+          </p>
+          <ul className="mt-2 flex flex-col gap-1.5 text-sm">
+            {[...debriefs]
+              .reverse()
+              .slice(0, 12)
+              .map((d, i) => (
+                <li key={`${d.tripId}-${i}`} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 truncate">
+                    <span className="text-muted-foreground">{historyDate(d.at)}</span>{" "}
+                    <span className="font-medium">{d.destination}</span>
+                  </span>
+                  <span
+                    className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums ${
+                      d.deltaMinutes < 0
+                        ? "bg-primary/12 text-primary"
+                        : d.deltaMinutes === 0
+                          ? "surface-soft text-muted-foreground"
+                          : "bg-destructive/15 text-destructive"
+                    }`}
+                  >
+                    {d.deltaMinutes === 0
+                      ? "on time"
+                      : `${Math.abs(d.deltaMinutes)}m ${d.deltaMinutes < 0 ? "early" : "late"}`}
+                  </span>
+                </li>
+              ))}
+          </ul>
+          {debriefs.length > 12 && (
+            <p className="mt-2 text-xs text-muted-foreground">
+              {debriefs.length} trips recorded in total — every one is training data.
+            </p>
+          )}
+        </section>
+      )}
 
       {trend.length > 0 && (
         <section className="surface p-4">

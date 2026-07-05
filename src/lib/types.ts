@@ -22,6 +22,8 @@ export interface TransitDetails {
   walkMinutes?: number;
   /** Public transit: the departure time of the bus/train (HH:mm). */
   transitDepartureTime?: string;
+  /** Public transit: estimated ride duration, used to recommend a departure. */
+  rideMinutes?: number;
   /** Public transit: walk from door to the stop, minutes. */
   walkToStopMinutes?: number;
   /** Being picked up: when the driver arrives (HH:mm). */

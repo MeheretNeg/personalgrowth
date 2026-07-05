@@ -52,7 +52,9 @@ export default function Plan() {
   const [walkGuess, setWalkGuess] = useState("");
   const [transitDeparture, setTransitDeparture] = useState("");
   const [walkToStop, setWalkToStop] = useState("10");
+  const [transitRideGuess, setTransitRideGuess] = useState("");
   const [pickupTime, setPickupTime] = useState("");
+  const [pickupDriveGuess, setPickupDriveGuess] = useState("");
   const [selections, setSelections] = useState<Selection[]>([]);
   const [logs] = useState(() => (typeof window === "undefined" ? [] : loadLogs()));
   const [level] = useState(() => (typeof window === "undefined" ? 1 : loadSettings().level));
@@ -80,9 +82,14 @@ export default function Plan() {
       return { mode, driveMinutes: Number(driveGuess) || 0 };
     if (mode === "walking") return { mode, walkMinutes: Number(walkGuess) || 0 };
     if (mode === "transit")
-      return { mode, transitDepartureTime: transitDeparture, walkToStopMinutes: Number(walkToStop) || 10 };
-    return { mode, pickupTime };
-  }, [mode, driveGuess, walkGuess, transitDeparture, walkToStop, pickupTime]);
+      return {
+        mode,
+        transitDepartureTime: transitDeparture,
+        walkToStopMinutes: Number(walkToStop) || 10,
+        rideMinutes: Number(transitRideGuess) || undefined,
+      };
+    return { mode, pickupTime, driveMinutes: Number(pickupDriveGuess) || undefined };
+  }, [mode, driveGuess, walkGuess, transitDeparture, walkToStop, transitRideGuess, pickupTime, pickupDriveGuess]);
 
   const plannedTasks: PlannedTask[] = useMemo(
     () =>
@@ -261,6 +268,23 @@ export default function Plan() {
                 : !!pickupTime)
         : plannedTasks.length > 0;
 
+  /**
+   * Reverse the anchor question for pickup/transit: given required arrival,
+   * what time should the ride/vehicle LEAVE? This is exactly the backward
+   * calculation a time-blind brain skips — so Anchor does it.
+   */
+  function recommendedAnchor(travelMinutes: number, arrivalSideBufferMin: number) {
+    if (!arrivalDate || travelMinutes <= 0) return null;
+    const settings = loadSettings();
+    const t = new Date(
+      arrivalDate.getTime() -
+        (settings.earlyBufferMinutes + travelMinutes + arrivalSideBufferMin) * 60_000,
+    );
+    const hh = String(t.getHours()).padStart(2, "0");
+    const mm = String(t.getMinutes()).padStart(2, "0");
+    return { display: formatTime(t), value: `${hh}:${mm}` };
+  }
+
   /** Exact deficit when the plan already starts in the past. */
   const behindMin =
     timeline && now && timeline.startAt.getTime() < now.getTime()
@@ -423,6 +447,36 @@ export default function Plan() {
             Walk to the stop (minutes)
             <Input type="number" inputMode="numeric" min={0} value={walkToStop} onChange={(e) => setWalkToStop(e.target.value)} />
           </label>
+          <div className="surface-soft flex flex-col gap-2 p-3.5">
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
+              Not sure which one to catch? How long is the ride (minutes)?
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                value={transitRideGuess}
+                onChange={(e) => setTransitRideGuess(e.target.value)}
+                placeholder="minutes"
+              />
+            </label>
+            {(() => {
+              const rec = recommendedAnchor(Number(transitRideGuess) || 0, 5);
+              return rec ? (
+                <div className="text-sm">
+                  Catch one departing by <b className="text-primary">{rec.display}</b> or
+                  earlier (ride + walk at the far end included).
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2 w-full rounded-full"
+                    onClick={() => setTransitDeparture(rec.value)}
+                  >
+                    Use {rec.display}
+                  </Button>
+                </div>
+              ) : null;
+            })()}
+          </div>
           <p className="text-xs text-muted-foreground">
             The timeline anchors to the <b>departure</b> — the vehicle does not
             negotiate. A 3-minute platform buffer is added automatically.
@@ -436,6 +490,36 @@ export default function Plan() {
             They arrive to pick you up at
             <Input type="time" value={pickupTime} onChange={(e) => setPickupTime(e.target.value)} />
           </label>
+          <div className="surface-soft flex flex-col gap-2 p-3.5">
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
+              Not sure what time to ask for? How long is the drive there (minutes)?
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={1}
+                value={pickupDriveGuess}
+                onChange={(e) => setPickupDriveGuess(e.target.value)}
+                placeholder="minutes"
+              />
+            </label>
+            {(() => {
+              const rec = recommendedAnchor(Number(pickupDriveGuess) || 0, 3);
+              return rec ? (
+                <div className="text-sm">
+                  Ask to be picked up by <b className="text-primary">{rec.display}</b> to
+                  make {destination || "it"} on time (drive + drop-off included).
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="mt-2 w-full rounded-full"
+                    onClick={() => setPickupTime(rec.value)}
+                  >
+                    Use {rec.display}
+                  </Button>
+                </div>
+              ) : null;
+            })()}
+          </div>
           <p className="text-xs text-muted-foreground">
             You&apos;ll be fully ready and waiting at the door <b>10 minutes
             before</b> they pull up. Nobody waits on you — that&apos;s the
