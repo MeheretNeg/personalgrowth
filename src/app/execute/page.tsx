@@ -279,9 +279,13 @@ export default function Execute() {
               {farFuture
                 ? "you're very early — arm it from the lock screen next time"
                 : behind
-                  ? driftMin >= 15
-                    ? "it won't recover on its own — replan below"
-                    : "next block is where you win it back"
+                  ? `on pace for ${formatTime(
+                      new Date(
+                        new Date(trip.arrivalTime).getTime() -
+                          trip.earlyBufferMinutes * 60_000 +
+                          driftMin * 60_000,
+                      ),
+                    )}${driftMin >= 15 ? " — replan below" : ""}`
                   : ahead
                     ? "keep it, don't spend it"
                     : "stay on the block"}

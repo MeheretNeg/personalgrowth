@@ -781,6 +781,26 @@ export default function Plan() {
               <p className="text-3xl font-bold tabular-nums text-destructive">
                 {behindMin} min behind
               </p>
+              {(() => {
+                // The consequence, made concrete: start now, take every block
+                // as planned, and THIS is when you walk in.
+                const buffer = loadSettings().earlyBufferMinutes;
+                const projected = new Date(
+                  timeline.targetArrival.getTime() + behindMin * 60_000,
+                );
+                const lateBy = behindMin - buffer;
+                return (
+                  <p className="mt-1 text-sm font-semibold text-destructive">
+                    Doing all of this at the planned pace, you&apos;d walk in at{" "}
+                    <b className="text-base">{formatTime(projected)}</b>
+                    {lateBy > 0 ? (
+                      <> — {lateBy} min past the required {formatTime(arrivalDate!)}.</>
+                    ) : (
+                      <> — your {buffer}-min early cushion just absorbs it.</>
+                    )}
+                  </p>
+                );
+              })()}
               <p className="mt-1 text-sm text-destructive/90">
                 This timeline should have started at {formatTime(timeline.startAt)}.
                 Cut {behindMin} min of tasks, or start now and move fast — the
