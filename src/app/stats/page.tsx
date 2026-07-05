@@ -7,8 +7,10 @@ import {
   MIN_LOGS_FOR_HISTORY,
   calibrationScore,
   errorTrend,
+  meanSignedErrorPct,
   personalMedian,
 } from "@/lib/calibration";
+import { getPrior } from "@/lib/priors";
 import { LEVELS, levelProgress, onTimeStreak } from "@/lib/graduation";
 import { Debrief, DurationLog, GraduationLevel } from "@/lib/types";
 
@@ -20,12 +22,14 @@ function historyDate(iso: string): string {
   });
 }
 
-function labelFor(taskId: string, logs: DurationLog[]): string {
+function labelFor(taskId: string): string {
   if (taskId.startsWith("drive:"))
     return `Drive → ${taskId.slice(6).replace(/-/g, " ")}`;
   if (taskId.startsWith("walk:"))
     return `Walk → ${taskId.slice(5).replace(/-/g, " ")}`;
-  return logs.find((l) => l.taskId === taskId)?.taskId.replace(/-/g, " ") ?? taskId;
+  // The screen that proves personalization must show the label the user
+  // chose, not an internal slug.
+  return getPrior(taskId)?.label ?? taskId.replace(/-/g, " ");
 }
 
 export default function Stats() {
@@ -75,6 +79,18 @@ export default function Stats() {
           How close your blind guesses land to measured reality (last 10 tasks).
           This number IS the training goal — the app fades as it climbs.
         </p>
+        {(() => {
+          const bias = meanSignedErrorPct(logs);
+          return bias !== null && Math.abs(bias) >= 10 ? (
+            <p className="mt-2 text-sm">
+              Your pattern: you guess about{" "}
+              <b className={bias > 0 ? "text-destructive" : "text-accent"}>
+                {Math.abs(bias)}% {bias > 0 ? "short" : "long"}
+              </b>
+              {bias > 0 ? " — the time-blindness signature. Pad your gut number." : "."}
+            </p>
+          ) : null;
+        })()}
       </section>
 
       <section className="surface p-5">
@@ -157,6 +173,11 @@ export default function Stats() {
                   <span className="min-w-0 truncate">
                     <span className="text-muted-foreground">{historyDate(d.at)}</span>{" "}
                     <span className="font-medium">{d.destination}</span>
+                    {d.solo && (
+                      <span className="ml-1 rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-bold text-accent">
+                        solo
+                      </span>
+                    )}
                   </span>
                   <span
                     className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-bold tabular-nums ${
@@ -209,15 +230,19 @@ export default function Stats() {
       {taskIds.length > 0 && (
         <section className="surface p-4">
           <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-            What Anchor has learned about you
+            What you&apos;ve learned about yourself
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            After 5 measurements, your real time replaces the textbook number
+            in every future plan.
           </p>
           <ul className="mt-2 flex flex-col gap-1.5 text-sm">
             {taskIds.map((id) => {
               const mine = logs.filter((l) => l.taskId === id);
               const med = personalMedian(logs, id);
               return (
-                <li key={id} className="flex justify-between capitalize">
-                  <span>{labelFor(id, logs)}</span>
+                <li key={id} className="flex justify-between">
+                  <span>{labelFor(id)}</span>
                   <span className="text-muted-foreground">
                     {med !== null ? (
                       <>

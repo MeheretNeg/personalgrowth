@@ -12,7 +12,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { TimeDecay, formatCountdown } from "@/components/time-decay";
-import { appendLog, loadSettings, loadTrip, saveSettings, saveTrip } from "@/lib/store";
+import { appendLog, clearTrip, loadSettings, loadTrip, saveSettings, saveTrip } from "@/lib/store";
 import { formatTime, minutesUntil, rebuildRemaining } from "@/lib/engine";
 import { cueForStep, fireCue } from "@/lib/notify";
 import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
@@ -23,8 +23,14 @@ const DEFAULT_CHECKLIST = ["Keys", "Wallet", "Phone", "Charger"];
 /** The user's blind guess for a step, for calibration logging. */
 function guessFor(trip: Trip, step: TimelineStep): number | null {
   if (!step.taskId) return null;
-  if (step.taskId.startsWith("drive:")) return trip.transit.driveMinutes ?? null;
-  if (step.taskId.startsWith("walk:")) return trip.transit.walkMinutes ?? null;
+  if (step.taskId.startsWith("drive:")) {
+    const g = trip.transit.driveGuessMinutes ?? trip.transit.driveMinutes ?? 0;
+    return g > 0 ? g : null; // 0 = suggestion accepted, not a blind rep
+  }
+  if (step.taskId.startsWith("walk:")) {
+    const g = trip.transit.walkGuessMinutes ?? trip.transit.walkMinutes ?? 0;
+    return g > 0 ? g : null;
+  }
   const task = trip.tasks.find((t) => t.taskId === step.taskId);
   // No guess (planned from standard times) → no calibration rep to score.
   return task && task.guessMinutes > 0 ? task.guessMinutes : null;
@@ -110,12 +116,25 @@ export default function Execute() {
 
   if (!trip) return null;
 
-  // Ahead/behind: measured against the locked plan, not vibes.
-  const driftMin = step
-    ? Math.round(-minutesUntil(running ? step.endsAt : step.startsAt, now))
-    : 0;
+  // Ahead/behind: measured against the locked plan, not vibes. While a
+  // block runs, drift is the PROJECTED finish (startedAt + planned, or now
+  // if already past that) vs the scheduled end — so tapping Start on a
+  // late block can never flip the pill to "ahead".
+  let driftMin = 0;
+  if (step) {
+    if (running) {
+      const projectedFinish = Math.max(
+        now.getTime(),
+        new Date(step.startedAt!).getTime() + step.plannedMinutes * 60_000,
+      );
+      driftMin = Math.round((projectedFinish - new Date(step.endsAt).getTime()) / 60_000);
+    } else {
+      driftMin = Math.round(-minutesUntil(step.startsAt, now));
+    }
+  }
   const behind = driftMin >= 1;
   const ahead = driftMin <= -1;
+  const farFuture = !running && driftMin <= -120;
 
   const remainingPrep = trip.timeline.slice(idx).filter((s) => s.kind === "prep");
   const canReplan = !done && behind && driftMin >= 3 && remainingPrep.length > 0;
@@ -127,10 +146,11 @@ export default function Execute() {
     void syncPushSchedule(next, level);
   }
 
-  function start() {
-    const timeline = trip!.timeline.map((s, i) =>
-      i === idx ? { ...s, startedAt: new Date().toISOString() } : s,
-    );
+  function start(backdateMinutes = 0) {
+    // "Already doing it" is THE core failure mode here — a late Start tap
+    // under-counts the actual and biases the medians optimistic.
+    const startedAt = new Date(new Date().getTime() - backdateMinutes * 60_000).toISOString();
+    const timeline = trip!.timeline.map((s, i) => (i === idx ? { ...s, startedAt } : s));
     update({ ...trip!, timeline });
   }
 
@@ -138,25 +158,29 @@ export default function Execute() {
     const nowIso = new Date().toISOString();
     const current = trip!.timeline[idx];
     const guess = guessFor(trip!, current);
+    const elapsedSec = current.startedAt
+      ? (Date.now() - new Date(current.startedAt).getTime()) / 1000
+      : 0;
     // Always measure reality (medians learn from actuals); a guess of 0
-    // just means no calibration rep to score for this block.
-    if (current.startedAt && current.taskId) {
-      const actual = Math.max(
-        1,
-        Math.round((Date.now() - new Date(current.startedAt).getTime()) / 60_000),
-      );
+    // just means no calibration rep to score for this block. Sub-15s taps
+    // are someone clicking through, not doing the task — never log those.
+    if (current.startedAt && current.taskId && elapsedSec >= 15) {
       appendLog({
         taskId: current.taskId,
         guessMinutes: guess ?? 0,
-        actualMinutes: actual,
+        actualMinutes: Math.max(1, Math.round(elapsedSec / 60)),
+        actualSeconds: Math.round(elapsedSec),
         at: nowIso,
       });
     }
-    // Immediate reward: beating the block banks visible minutes.
-    if (current.startedAt) {
-      const spentMin = (Date.now() - new Date(current.startedAt).getTime()) / 60_000;
+    // Immediate reward — calibration first (a called shot beats a rushed
+    // one; undershooting is not the goal), banked minutes second.
+    if (current.startedAt && elapsedSec >= 15) {
+      const spentMin = elapsedSec / 60;
+      const errorPct = guess ? Math.abs((spentMin - guess) / guess) * 100 : 100;
       const saved = Math.floor(current.plannedMinutes - spentMin);
-      if (saved >= 1) setBanked({ amount: saved, key: Date.now() });
+      if (guess && errorPct <= 12) setBanked({ amount: 0, key: Date.now() });
+      else if (saved >= 1) setBanked({ amount: saved, key: Date.now() });
     }
     const timeline = trip!.timeline.map((s, i) =>
       i === idx ? { ...s, finishedAt: nowIso } : s,
@@ -174,7 +198,15 @@ export default function Execute() {
     const rebuilt = rebuildRemaining(trip!.timeline, idx, keepIds);
     setReplanOpen(false);
     firedCues.current.clear();
+    // If the running block itself was cut, move on without logging it.
     update({ ...trip!, timeline: rebuilt.timeline });
+    setChecked([]);
+  }
+
+  function discardTrip() {
+    clearTrip();
+    void clearPushSchedule();
+    router.push("/");
   }
 
   function saveChecklist() {
@@ -191,7 +223,9 @@ export default function Execute() {
   }
 
   function toDebrief() {
-    saveTrip({ ...trip!, phase: "debrief" });
+    // The arrival timestamp prefills the debrief delta — the outcome that
+    // drives levels should rest on a measurement, not an honor system.
+    saveTrip({ ...trip!, phase: "debrief", arrivedAt: new Date().toISOString() });
     void clearPushSchedule();
     router.push("/debrief");
   }
@@ -233,20 +267,24 @@ export default function Execute() {
             aria-live="polite"
           >
             <span>
-              {behind
-                ? `${driftMin} min behind plan`
-                : ahead
-                  ? `${-driftMin} min ahead of plan`
-                  : "On plan"}
+              {farFuture
+                ? "Starts much later"
+                : behind
+                  ? `${driftMin} min behind plan`
+                  : ahead
+                    ? `${-driftMin} min ahead of plan`
+                    : "On plan"}
             </span>
             <span className={`text-xs font-medium ${behind ? "" : "text-muted-foreground"}`}>
-              {behind
-                ? driftMin >= 15
-                  ? "this plan is dead — replan it"
-                  : "chop chop — make it back"
-                : ahead
-                  ? "keep it, don't spend it"
-                  : "stay on the block"}
+              {farFuture
+                ? "you're very early — arm it from the lock screen next time"
+                : behind
+                  ? driftMin >= 15
+                    ? "it won't recover on its own — replan below"
+                    : "next block is where you win it back"
+                  : ahead
+                    ? "keep it, don't spend it"
+                    : "stay on the block"}
             </span>
           </div>
 
@@ -265,7 +303,9 @@ export default function Execute() {
               className="rounded-full bg-primary/12 px-4 py-2 text-center text-sm font-bold text-primary"
               role="status"
             >
-              +{banked.amount} min banked. That's your lead — protect it.
+              {banked.amount === 0
+                ? "Called it. That's a calibrated rep — the real win."
+                : `+${banked.amount} min banked. That's your lead — protect it.`}
             </p>
           )}
 
@@ -285,15 +325,22 @@ export default function Execute() {
             </div>
 
             {running ? (
-              <TimeDecay plannedMinutes={step.plannedMinutes} startedAt={step.startedAt!} now={now} />
+              <TimeDecay
+                plannedMinutes={step.plannedMinutes}
+                startedAt={step.startedAt!}
+                now={now}
+                hideDigits={level >= 2 && guessFor(trip, step) !== null}
+              />
             ) : (
               <div className="flex flex-col items-center gap-1 py-6 text-center">
                 <p
-                  className={`font-mono text-6xl font-bold tabular-nums tracking-tight ${
-                    overdueStart ? "text-destructive animate-anchor-pulse" : ""
-                  }`}
+                  className={`font-mono font-bold tabular-nums tracking-tight ${
+                    secsToStart > 99 * 60 ? "text-5xl" : "text-6xl"
+                  } ${overdueStart ? "text-destructive animate-anchor-pulse" : ""}`}
                 >
-                  {formatCountdown(secsToStart)}
+                  {secsToStart > 99 * 60
+                    ? `${Math.floor(secsToStart / 3600)}h ${Math.floor((secsToStart % 3600) / 60)}m`
+                    : formatCountdown(secsToStart)}
                 </p>
                 <p
                   className={`text-[11px] font-semibold uppercase tracking-[0.2em] ${
@@ -302,6 +349,19 @@ export default function Execute() {
                 >
                   {overdueStart ? "past start — tap start now" : "until this block starts"}
                 </p>
+                {overdueStart && (
+                  <div className="mt-2 flex gap-2">
+                    {[2, 5].map((m) => (
+                      <button
+                        key={m}
+                        onClick={() => start(m)}
+                        className="surface-soft rounded-full px-3 py-1.5 text-xs font-semibold text-muted-foreground"
+                      >
+                        Already doing it — started ~{m}m ago
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
@@ -310,6 +370,7 @@ export default function Execute() {
                 {checklist.map((item) => (
                   <button
                     key={item}
+                    aria-pressed={checked.includes(item)}
                     onClick={() =>
                       setChecked((c) =>
                         c.includes(item) ? c.filter((x) => x !== item) : [...c, item],
@@ -354,7 +415,7 @@ export default function Execute() {
               <Button
                 size="lg"
                 className="h-16 rounded-2xl bg-primary text-lg font-bold tracking-tight text-primary-foreground hover:bg-primary/90"
-                onClick={start}
+                onClick={() => start()}
               >
                 Start
               </Button>
@@ -373,6 +434,15 @@ export default function Execute() {
             </section>
           )}
         </>
+      )}
+
+      {!done && (
+        <button
+          onClick={discardTrip}
+          className="text-center text-xs text-muted-foreground underline"
+        >
+          This trip isn&apos;t happening — discard (nothing gets logged)
+        </button>
       )}
 
       {done && (
@@ -408,6 +478,7 @@ export default function Execute() {
               return (
                 <button
                   key={s.id}
+                  aria-pressed={kept}
                   onClick={() =>
                     setKeepIds((cur) => {
                       const next = new Set(cur);

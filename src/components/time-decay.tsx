@@ -20,10 +20,13 @@ export function TimeDecay({
   plannedMinutes,
   startedAt,
   now,
+  hideDigits = false,
 }: {
   plannedMinutes: number;
   startedAt: string;
   now: Date;
+  /** Coach level and up: train blocks show only the drain — feel the time. */
+  hideDigits?: boolean;
 }) {
   const elapsedSec = (now.getTime() - new Date(startedAt).getTime()) / 1000;
   const remainingSec = plannedMinutes * 60 - elapsedSec;
@@ -52,22 +55,33 @@ export function TimeDecay({
           style={{ height: overtime ? "100%" : `${pct}%` }}
         />
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <p
-            className={`font-mono text-6xl font-bold tabular-nums tracking-tight ${
-              overtime ? "text-white" : "text-foreground"
-            }`}
-            style={{ textShadow: "0 2px 12px rgba(0,0,0,0.55)" }}
-          >
-            {formatCountdown(remainingSec)}
-          </p>
-          <p
-            className={`mt-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${
-              overtime ? "text-white/90" : "text-foreground/70"
-            }`}
-            style={{ textShadow: "0 1px 8px rgba(0,0,0,0.5)" }}
-          >
-            {overtime ? "over — wrap it up" : "left in this block"}
-          </p>
+          {/* Scrim keeps the digits readable over the amber fill (WCAG). */}
+          <div className="flex flex-col items-center rounded-2xl bg-black/45 px-5 py-2">
+            {hideDigits && !overtime ? (
+              <p className="font-mono text-4xl font-bold tracking-tight text-foreground">
+                ~ ~ ~
+              </p>
+            ) : (
+              <p
+                className={`font-mono text-6xl font-bold tabular-nums tracking-tight ${
+                  overtime ? "text-white" : "text-foreground"
+                }`}
+              >
+                {formatCountdown(remainingSec)}
+              </p>
+            )}
+            <p
+              className={`mt-1 text-[11px] font-semibold uppercase tracking-[0.2em] ${
+                overtime ? "text-white/90" : "text-foreground/80"
+              }`}
+            >
+              {overtime
+                ? "over — wrap it up"
+                : hideDigits
+                  ? "the bar is your clock — feel it"
+                  : "left in this block"}
+            </p>
+          </div>
         </div>
       </div>
     </div>

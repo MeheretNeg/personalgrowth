@@ -60,14 +60,26 @@ export function onTimeStreak(debriefs: Debrief[]): number {
   return streak;
 }
 
+/** Share of the last `window` arrivals that were on time or early. */
+export function onTimeRate(debriefs: Debrief[], window = 10): { hit: number; of: number } {
+  const recent = debriefs.slice(-window);
+  return { hit: recent.filter((d) => d.deltaMinutes <= 0).length, of: recent.length };
+}
+
+/** Reps that actually trained the clock — quick-planned logs (guess 0) feed medians, not levels. */
+function guessedReps(logs: DurationLog[]): number {
+  return logs.filter((l) => l.guessMinutes > 0).length;
+}
+
 /** The highest level the measured record currently supports. */
 export function earnedLevel(logs: DurationLog[], debriefs: Debrief[]): GraduationLevel {
   const score = calibrationScore(logs) ?? 0;
   const streak = onTimeStreak(debriefs);
+  const reps = guessedReps(logs);
   let earned: GraduationLevel = 1;
   for (const lvl of [2, 3, 4] as const) {
     const req = LEVELS[lvl];
-    if (score >= req.minScore && logs.length >= req.minLogs && streak >= req.minStreak) {
+    if (score >= req.minScore && reps >= req.minLogs && streak >= req.minStreak) {
       earned = lvl;
     }
   }
@@ -75,12 +87,19 @@ export function earnedLevel(logs: DurationLog[], debriefs: Debrief[]): Graduatio
 }
 
 /**
- * One step per debrief toward the earned level. A single late day after a
- * long climb costs one level, not four — the streak reset already stings.
+ * One step per debrief toward the earned level — but demotion ONLY on the
+ * debrief that was itself late. Without that gate, one late day zeroes the
+ * streak and the next two ON-TIME debriefs each step a graduate down —
+ * a 4→1 cascade for a single slip, which is exactly the punishment
+ * spiral that makes this population abandon tools.
  */
-export function stepToward(current: GraduationLevel, earned: GraduationLevel): GraduationLevel {
+export function stepToward(
+  current: GraduationLevel,
+  earned: GraduationLevel,
+  wasLate: boolean,
+): GraduationLevel {
   if (earned > current) return (current + 1) as GraduationLevel;
-  if (earned < current) return (current - 1) as GraduationLevel;
+  if (earned < current && wasLate) return (current - 1) as GraduationLevel;
   return current;
 }
 
@@ -102,11 +121,12 @@ export function levelProgress(
   const req = LEVELS[target];
   const score = calibrationScore(logs) ?? 0;
   const streak = onTimeStreak(debriefs);
+  const reps = guessedReps(logs);
   return {
     target,
     items: [
       { label: "Clock score", have: score, need: req.minScore, met: score >= req.minScore },
-      { label: "Tasks measured", have: logs.length, need: req.minLogs, met: logs.length >= req.minLogs },
+      { label: "Guessed reps", have: reps, need: req.minLogs, met: reps >= req.minLogs },
       { label: "On-time streak", have: streak, need: req.minStreak, met: streak >= req.minStreak },
     ],
   };

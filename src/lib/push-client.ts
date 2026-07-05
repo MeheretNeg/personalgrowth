@@ -134,32 +134,42 @@ export function buildPushCues(trip: Trip, level: GraduationLevel, now: Date): Pu
         body:
           n === 0
             ? "This block starts now. Tap start."
-            : `You're ${late} min behind on starting this. Chop chop.`,
+            : `Starting this ${late} min late — it comes straight off the buffer.`,
         tag: `missed-${step.id}-${n}`,
         requireInteraction: isFinal || n >= 2,
       });
     }
   }
-  return cues;
+  // Long plans can exceed the server's cue cap — keep the SOONEST cues
+  // (near-term wake-ups matter more than far-out nag rungs).
+  cues.sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+  return cues.slice(0, 55);
 }
 
-async function post(subscription: PushSubscription, cues: PushCue[]): Promise<void> {
+/** True only when the schedule verifiably reached the server. */
+async function post(subscription: PushSubscription, cues: PushCue[]): Promise<boolean> {
   try {
-    await fetch("/api/push/sync", {
+    const res = await fetch("/api/push/sync", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ subscription: subscription.toJSON(), cues }),
     });
+    return res.ok;
   } catch {
     /* offline or push disabled — in-page cues still run */
+    return false;
   }
 }
 
-/** Re-sync the remaining schedule; call on every trip transition. */
-export async function syncPushSchedule(trip: Trip, level: GraduationLevel): Promise<void> {
+/**
+ * Re-sync the remaining schedule; call on every trip transition.
+ * Returns false when NO closed-app path exists (no key, permission denied,
+ * unsupported, or the server rejected) — callers must not promise wake-ups.
+ */
+export async function syncPushSchedule(trip: Trip, level: GraduationLevel): Promise<boolean> {
   const sub = await getSubscription(true);
-  if (!sub) return;
-  await post(sub, buildPushCues(trip, level, new Date()));
+  if (!sub) return false;
+  return post(sub, buildPushCues(trip, level, new Date()));
 }
 
 /** Replace the schedule with an arbitrary cue list (e.g. the plan nudge). */

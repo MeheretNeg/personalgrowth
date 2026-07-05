@@ -27,12 +27,13 @@ export async function POST(req: Request) {
   if (!sub?.endpoint || !Array.isArray(cues)) {
     return NextResponse.json({ error: "subscription and cues required" }, { status: 400 });
   }
-  if (
-    cues.length > MAX_CUES ||
-    cues.some((c) => !c.at || !c.title || !c.tag || isNaN(new Date(c.at).getTime()))
-  ) {
+  if (cues.some((c) => !c.at || !c.title || !c.tag || isNaN(new Date(c.at).getTime()))) {
     return NextResponse.json({ error: "invalid cues" }, { status: 400 });
   }
-  await setSchedule(sub, cues);
-  return NextResponse.json({ enabled: true, scheduled: cues.length });
+  // Never reject a long plan outright — keep the soonest cues.
+  const kept = [...cues]
+    .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+    .slice(0, MAX_CUES);
+  await setSchedule(sub, kept);
+  return NextResponse.json({ enabled: true, scheduled: kept.length });
 }

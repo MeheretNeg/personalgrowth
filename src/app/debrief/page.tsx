@@ -55,6 +55,15 @@ export default function DebriefPage() {
       return;
     }
     setTrip(t);
+    // Prefill from the measured arrival tap — the record that drives
+    // levels shouldn't rest on an honor-system dial defaulting to
+    // "on time". Still editable for "I tapped late" cases.
+    if (t.arrivedAt) {
+      const measured = Math.round(
+        (new Date(t.arrivedAt).getTime() - new Date(t.arrivalTime).getTime()) / 60_000,
+      );
+      if (Math.abs(measured) <= 120) setDelta(measured);
+    }
   }, [router]);
 
   if (!trip) return null;
@@ -70,9 +79,11 @@ export default function DebriefPage() {
     });
     saveTrip({ ...trip!, phase: "done" });
 
-    // FADE: recompute what the record supports and move one step toward it.
+    // FADE: recompute what the record supports and move one step toward
+    // it. Demotion only ever happens on a late day itself — an on-time
+    // arrival must never cost a level, whatever the streak math says.
     const settings = loadSettings();
-    const next = stepToward(settings.level, earnedLevel(loadLogs(), debriefs));
+    const next = stepToward(settings.level, earnedLevel(loadLogs(), debriefs), delta > 0);
     if (next !== settings.level) {
       saveSettings({ ...settings, level: next });
       setLevelChange({ from: settings.level, to: next });
@@ -95,8 +106,8 @@ export default function DebriefPage() {
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">
             {onTime
-              ? "Every early arrival is your brain relearning what time feels like."
-              : "Anchor folds this into your numbers — next plan gets harder to beat."}
+              ? "You did that — Anchor just watched the clock. Every early arrival is your brain relearning what time feels like."
+              : "One number, no story needed. One on-time arrival restarts the count — plan it now while it stings."}
           </p>
           {onTime && streak >= 2 && (
             <p className="mt-3 rounded-full bg-primary/12 px-4 py-2 text-sm font-bold text-primary">
@@ -118,7 +129,7 @@ export default function DebriefPage() {
             <p className="mt-1 text-sm text-muted-foreground">
               {levelChange.to > levelChange.from
                 ? LEVELS[levelChange.to].means
-                : "The streak broke, so Anchor steps back in until you rebuild it. That's the deal."}
+                : "The scaffold's back for a bit while the record rebuilds. You've earned your way up before — the route is known."}
             </p>
           </section>
         )}
@@ -154,13 +165,17 @@ export default function DebriefPage() {
         >
           {delta === 0 ? "Exactly on time" : `${Math.abs(delta)} min ${early ? "early" : "late"}`}
         </p>
-        <div className="mt-4 grid grid-cols-4 gap-2">
-          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta - 5)}>−5</Button>
-          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta - 1)}>−1</Button>
-          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta + 1)}>+1</Button>
-          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta + 5)}>+5</Button>
+        {trip.arrivedAt && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            measured from your &quot;I&apos;ve arrived&quot; tap — adjust if you tapped late
+          </p>
+        )}
+        <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
+          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta - 5)}>5 earlier</Button>
+          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta - 1)}>1 earlier</Button>
+          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta + 1)}>1 later</Button>
+          <Button variant="secondary" className="rounded-full" onClick={() => setDelta(delta + 5)}>5 later</Button>
         </div>
-        <p className="mt-2 text-xs text-muted-foreground">minus = early, plus = late</p>
       </section>
 
       <section className="flex flex-col gap-2">
@@ -171,6 +186,7 @@ export default function DebriefPage() {
           {CAUSES.map((c) => (
             <button
               key={c}
+              aria-pressed={causes.includes(c)}
               onClick={() =>
                 setCauses((cur) => (cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c]))
               }
@@ -202,6 +218,15 @@ export default function DebriefPage() {
       >
         Save the lesson
       </Button>
+      <button
+        onClick={() => {
+          saveTrip({ ...trip!, phase: "done" });
+          router.push("/");
+        }}
+        className="text-center text-xs text-muted-foreground underline"
+      >
+        Skip — log nothing this time
+      </button>
     </main>
   );
 }

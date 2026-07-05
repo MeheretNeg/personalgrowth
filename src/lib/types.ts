@@ -16,10 +16,14 @@ export interface PlannedTask {
 
 export interface TransitDetails {
   mode: TransitMode;
-  /** Driving / picking someone up: estimated drive minutes (guess-first). */
+  /** Driving / picking someone up: planned drive minutes. */
   driveMinutes?: number;
-  /** Walking: estimated door-to-door walk minutes (guess-first). */
+  /** The BLIND drive guess (0 = user accepted the suggestion; unscored). */
+  driveGuessMinutes?: number;
+  /** Walking: planned door-to-door walk minutes. */
   walkMinutes?: number;
+  /** The BLIND walk guess (0 = suggestion accepted; unscored). */
+  walkGuessMinutes?: number;
   /** Public transit: the departure time of the bus/train (HH:mm). */
   transitDepartureTime?: string;
   /** Public transit: estimated ride duration, used to recommend a departure. */
@@ -60,6 +64,12 @@ export interface Trip {
   timeline: TimelineStep[];
   currentStepIndex: number;
   lockedAt?: string;
+  /** Set when the user armed a scheduled start (waiting room survives reopen). */
+  armedAt?: string;
+  /** Set when the 20s ritual completed — never re-enforced on reopen. */
+  visualizedAt?: string;
+  /** Timestamp of the "I've arrived" tap — prefills the debrief delta. */
+  arrivedAt?: string;
 }
 
 /** One silent measurement of how long a task actually took. */
@@ -67,6 +77,8 @@ export interface DurationLog {
   taskId: string;
   guessMinutes: number;
   actualMinutes: number;
+  /** Seconds precision (newer logs) — whole-minute rounding made short tasks pure noise. */
+  actualSeconds?: number;
   at: string; // ISO
 }
 
@@ -79,6 +91,8 @@ export interface Debrief {
   deltaMinutes: number;
   causes: string[];
   note?: string;
+  /** True for a free-solo trip (no timeline — the internal clock alone). */
+  solo?: boolean;
 }
 
 export interface Settings {

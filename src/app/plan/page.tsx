@@ -15,7 +15,7 @@ import {
   saveSettings,
   saveTrip,
 } from "@/lib/store";
-import { personalMedian } from "@/lib/calibration";
+import { personalMedian, planningMinutes } from "@/lib/calibration";
 import { PlannedTask, TransitDetails, TransitMode, Trip } from "@/lib/types";
 
 const MODES: { id: TransitMode; label: string; hint: string }[] = [
@@ -49,7 +49,9 @@ export default function Plan() {
   const [arrivalTime, setArrivalTime] = useState("");
   const [mode, setMode] = useState<TransitMode | null>(null);
   const [driveGuess, setDriveGuess] = useState("");
+  const [driveSuggested, setDriveSuggested] = useState(false);
   const [walkGuess, setWalkGuess] = useState("");
+  const [walkSuggested, setWalkSuggested] = useState(false);
   const [transitDeparture, setTransitDeparture] = useState("");
   const [walkToStop, setWalkToStop] = useState("10");
   const [transitRideGuess, setTransitRideGuess] = useState("");
@@ -71,16 +73,31 @@ export default function Plan() {
   /** Arrival as a Date — today, or tomorrow if that time already passed. */
   const arrivalDate = useMemo(() => {
     if (!arrivalTime || !now) return null;
-    let d = timeOnSameDay(arrivalTime, now);
-    if (d.getTime() < now.getTime()) d = new Date(d.getTime() + 24 * 3600_000);
+    const d = timeOnSameDay(arrivalTime, now);
+    // Roll by calendar day, not +24h of milliseconds — a DST weekend would
+    // land an armed airport run a full hour off.
+    if (d.getTime() < now.getTime()) d.setDate(d.getDate() + 1);
     return d;
   }, [arrivalTime, now]);
+
+  const isTomorrow = !!(arrivalDate && now && arrivalDate.toDateString() !== now.toDateString());
 
   const transit: TransitDetails | null = useMemo(() => {
     if (!mode) return null;
     if (mode === "driving" || mode === "pickingUp")
-      return { mode, driveMinutes: Number(driveGuess) || 0 };
-    if (mode === "walking") return { mode, walkMinutes: Number(walkGuess) || 0 };
+      return {
+        mode,
+        driveMinutes: Number(driveGuess) || 0,
+        // Accepting the suggestion is planning, not estimating — it must
+        // never count as a near-perfect calibration rep.
+        driveGuessMinutes: driveSuggested ? 0 : Number(driveGuess) || 0,
+      };
+    if (mode === "walking")
+      return {
+        mode,
+        walkMinutes: Number(walkGuess) || 0,
+        walkGuessMinutes: walkSuggested ? 0 : Number(walkGuess) || 0,
+      };
     if (mode === "transit")
       return {
         mode,
@@ -89,7 +106,7 @@ export default function Plan() {
         rideMinutes: Number(transitRideGuess) || undefined,
       };
     return { mode, pickupTime, driveMinutes: Number(pickupDriveGuess) || undefined };
-  }, [mode, driveGuess, walkGuess, transitDeparture, walkToStop, transitRideGuess, pickupTime, pickupDriveGuess]);
+  }, [mode, driveGuess, driveSuggested, walkGuess, walkSuggested, transitDeparture, walkToStop, transitRideGuess, pickupTime, pickupDriveGuess]);
 
   const plannedTasks: PlannedTask[] = useMemo(
     () =>
@@ -116,12 +133,16 @@ export default function Plan() {
     });
   }, [arrivalDate, transit, plannedTasks]);
 
-  /** The no-guess plan for a task: personal median if known, else the average. */
+  /**
+   * The no-guess plan for a task. Plans at ~p75 (your slow-ish day), not
+   * the median: durations are right-skewed, so planning at p50 means ~50%
+   * overrun odds per task — the planning fallacy this app exists to fix.
+   */
   function standardFor(taskId: string): Pick<Selection, "planned" | "source"> {
-    const med = personalMedian(logs, taskId);
+    const plan = planningMinutes(logs, taskId);
     return {
-      planned: med ?? getPrior(taskId)!.p50,
-      source: med !== null ? ("history" as const) : ("prior" as const),
+      planned: plan ?? getPrior(taskId)!.p75,
+      source: plan !== null ? ("history" as const) : ("prior" as const),
     };
   }
 
@@ -147,7 +168,7 @@ export default function Plan() {
 
   /** The minutes quick plan would use for a task — shown on the chips. */
   function standardMinutes(taskId: string): number {
-    return personalMedian(logs, taskId) ?? getPrior(taskId)!.p50;
+    return planningMinutes(logs, taskId) ?? getPrior(taskId)!.p75;
   }
 
   function selectUsual() {
@@ -255,6 +276,9 @@ export default function Plan() {
     router.push("/lock");
   }
 
+  // A selected-but-unplanned task must never silently drop out of the
+  // timeline — the plan would budget zero minutes for it without warning.
+  const unplannedCount = selections.filter((s) => s.planned === undefined).length;
   const stepValid =
     step === 0
       ? destination.trim() && arrivalTime && mode
@@ -266,7 +290,7 @@ export default function Plan() {
               : mode === "transit"
                 ? !!transitDeparture
                 : !!pickupTime)
-        : plannedTasks.length > 0;
+        : plannedTasks.length > 0 && unplannedCount === 0;
 
   /**
    * Reverse the anchor question for pickup/transit: given required arrival,
@@ -326,6 +350,11 @@ export default function Plan() {
               onChange={(e) => setArrivalTime(e.target.value)}
             />
           </label>
+          {isTomorrow && (
+            <p className="w-fit rounded-full bg-accent/15 px-3 py-1 text-xs font-bold text-accent">
+              That time already passed today — planning for TOMORROW
+            </p>
+          )}
           <p className="text-xs text-muted-foreground">
             Anchor targets {loadSettings().earlyBufferMinutes} minutes before
             this. Early is the new on time.
@@ -334,6 +363,7 @@ export default function Plan() {
             {MODES.map((m) => (
               <button
                 key={m.id}
+                aria-pressed={mode === m.id}
                 onClick={() => setMode(m.id)}
                 className={`rounded-2xl p-3.5 text-left transition-all active:scale-[0.98] ${
                   mode === m.id ? "surface-active" : "surface-soft"
@@ -365,24 +395,32 @@ export default function Plan() {
           {level < 3 &&
             (() => {
               const med = personalMedian(logs, `drive:${slug(destination)}`);
-              return med !== null ? (
+              // Blind first: the record only appears AFTER a guess exists,
+              // or the "rep" is just copying the answer.
+              if (med === null)
+                return (
+                  <p className="text-xs text-muted-foreground">
+                    Anchor measures the real drive every trip and will correct you
+                    once it knows this route.
+                  </p>
+                );
+              if (!(Number(driveGuess) > 0)) return null;
+              return (
                 <div className="surface-soft p-3.5 text-sm">
-                  Your last drives to <b>{destination}</b> actually took about{" "}
-                  <b className="text-primary">{med} min</b>.
+                  Guess locked. Your last drives to <b>{destination}</b> actually
+                  took about <b className="text-primary">{med} min</b>.
                   <Button
                     variant="secondary"
                     size="sm"
                     className="mt-2 w-full rounded-full"
-                    onClick={() => setDriveGuess(String(med))}
+                    onClick={() => {
+                      setDriveGuess(String(med));
+                      setDriveSuggested(true);
+                    }}
                   >
-                    Use {med} min
+                    Plan with {med} min
                   </Button>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Anchor measures the real drive every trip and will correct you
-                  once it knows this route.
-                </p>
               );
             })()}
           <p className="text-xs text-muted-foreground">
@@ -409,24 +447,30 @@ export default function Plan() {
           {level < 3 &&
             (() => {
               const med = personalMedian(logs, `walk:${slug(destination)}`);
-              return med !== null ? (
+              if (med === null)
+                return (
+                  <p className="text-xs text-muted-foreground">
+                    Anchor measures the real walk every trip and will correct you
+                    once it knows this route.
+                  </p>
+                );
+              if (!(Number(walkGuess) > 0)) return null;
+              return (
                 <div className="surface-soft p-3.5 text-sm">
-                  Your last walks to <b>{destination}</b> actually took about{" "}
-                  <b className="text-primary">{med} min</b>.
+                  Guess locked. Your last walks to <b>{destination}</b> actually
+                  took about <b className="text-primary">{med} min</b>.
                   <Button
                     variant="secondary"
                     size="sm"
                     className="mt-2 w-full rounded-full"
-                    onClick={() => setWalkGuess(String(med))}
+                    onClick={() => {
+                      setWalkGuess(String(med));
+                      setWalkSuggested(true);
+                    }}
                   >
-                    Use {med} min
+                    Plan with {med} min
                   </Button>
                 </div>
-              ) : (
-                <p className="text-xs text-muted-foreground">
-                  Anchor measures the real walk every trip and will correct you
-                  once it knows this route.
-                </p>
               );
             })()}
           <p className="text-xs text-muted-foreground">
@@ -551,7 +595,7 @@ export default function Plan() {
           </div>
           <p className="text-xs text-muted-foreground">
             {planMode === "quick"
-              ? "Tap tasks — times fill themselves: your measured medians where Anchor knows you, international averages where it doesn't. Quick plan keeps you on time; Train mode is what graduates you — one trained trip a week is enough."
+              ? "Tap tasks — times fill themselves: your measured record where Anchor knows you, typical times where it doesn't. Quick plan keeps you on time; Train mode is what graduates you — one trained trip a week is enough."
               : level >= 3
                 ? "Solo level: your guess is the plan. Anchor measures silently and tells you the truth at the debrief."
                 : level === 2
@@ -576,6 +620,7 @@ export default function Plan() {
               return (
                 <button
                   key={t.id}
+                  aria-pressed={!!sel}
                   onClick={() => toggleTask(t.id)}
                   className={`rounded-full px-3.5 py-1.5 text-sm font-semibold transition-colors ${
                     sel ? "bg-primary text-primary-foreground" : "surface-soft"
@@ -592,6 +637,12 @@ export default function Plan() {
               );
             })}
           </div>
+          {unplannedCount > 0 && (
+            <p className="text-xs font-semibold text-accent">
+              {unplannedCount} selected {unplannedCount === 1 ? "task still needs" : "tasks still need"} a
+              time — lock it in or deselect. Nothing gets silently skipped.
+            </p>
+          )}
           {plannedTasks.length > 0 && (
             <p className="text-sm font-semibold tabular-nums">
               Prep total:{" "}
@@ -607,8 +658,8 @@ export default function Plan() {
             <div className="surface-soft flex items-center justify-between gap-3 p-3">
               <p className="text-xs text-muted-foreground">
                 Rushed? Skip the guessing reps — plan the rest with standard
-                times: the international average, or your own medians once
-                Anchor has measured you.
+                times: typical durations, or your own record once Anchor has
+                measured you.
               </p>
               <Button
                 variant="secondary"
@@ -670,11 +721,17 @@ export default function Plan() {
                             Keep {s.guess}m
                           </Button>
                           <Button variant="secondary" size="sm" className="rounded-full" onClick={() => choose(s.taskId, prior.p75, "prior")}>
-                            Safe {prior.p75}m
+                            Slow day {prior.p75}m
                           </Button>
                           {med !== null && (
-                            <Button size="sm" className="col-span-2 rounded-full font-semibold" onClick={() => choose(s.taskId, med, "history")}>
-                              Trust my data: {med}m
+                            <Button
+                              size="sm"
+                              className="col-span-2 rounded-full font-semibold"
+                              onClick={() =>
+                                choose(s.taskId, planningMinutes(logs, s.taskId) ?? med, "history")
+                              }
+                            >
+                              Trust my record: {planningMinutes(logs, s.taskId) ?? med}m
                             </Button>
                           )}
                         </div>
@@ -701,13 +758,24 @@ export default function Plan() {
           <div className="surface p-4 text-sm">
             <p>
               Target: <b className="text-primary">{formatTime(timeline.targetArrival)}</b>{" "}
-              at {destination} ({loadSettings().earlyBufferMinutes} min early).
+              at {destination}
+              {isTomorrow && <b className="text-accent"> tomorrow</b>} (
+              {loadSettings().earlyBufferMinutes} min early).
             </p>
             <p className="mt-1">
               Out the door <b>{formatTime(timeline.leaveDoorAt)}</b> · start
               getting ready <b className="text-primary">{formatTime(timeline.startAt)}</b>.
             </p>
           </div>
+          {(mode === "transit" || mode === "pickup") &&
+            new Date(timeline.steps[timeline.steps.length - 1].endsAt).getTime() >
+              timeline.targetArrival.getTime() && (
+              <div className="surface-alert p-3 text-sm font-semibold text-destructive">
+                {mode === "transit"
+                  ? "That departure is after your target arrival — you'll be late unless the ride is instant. Wrong bus time?"
+                  : "That pickup is after your target arrival — you'll be late the moment they arrive. Wrong pickup time?"}
+              </div>
+            )}
           {behindMin > 0 && (
             <div className="surface-alert p-4">
               <p className="text-3xl font-bold tabular-nums text-destructive">

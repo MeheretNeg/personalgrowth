@@ -91,6 +91,40 @@ The full loop to drive (all state in localStorage, no backend):
   mono mm:ss countdown (block remaining when running, time-to-start when
   pending).
 
+## Audit-round behaviors (Phase 5)
+
+- **Planning numbers are p75**, not p50: quick plan/standards/"My usual"
+  fill shower=15, get-dressed=15, brush=4 (prior.p75), or planningMinutes()
+  (p75 of last 8 actuals) once 5+ measured. Medians remain display-only.
+- **Logging guard**: execute only appendLogs blocks with ≥15s elapsed
+  (fake-clock fastForward "00:20" inside each block when driving tests);
+  logs now carry actualSeconds. calibrationScore/errorTrend exclude logs
+  where max(guess, actual) < 5 min AND all guess-0 logs (scorableLogs).
+- **Drift while running** = projected finish (startedAt + planned, or now)
+  vs scheduled end — starting a late block never shows "ahead". Pending
+  blocks >120 min out show a neutral "Starts much later" pill.
+- **Graduation**: minLogs counts GUESSED reps only; demotion happens only
+  on a debrief that was itself late (stepToward takes wasLate).
+- **Debrief delta prefills** from trip.arrivedAt (capped ±120 min);
+  steppers read "5 earlier"/"1 later". Skip-debrief link logs nothing.
+- **Lock ritual**: dose is 20s normally, 5s when the timeline is already
+  behind — match buttons with /start the \d+ seconds/i. Second half of the
+  20s swaps to obstacle-naming copy (mental contrasting). Ritual completion
+  and armed state persist on the trip (visualizedAt/armedAt) across reopen.
+  arm() is async — wait for the waiting-room text after clicking.
+- **Armed screen is honest**: without a verified push path it says keep
+  the screen open / set an alarm instead of "You can close the app".
+- **Travel guesses are blind**: the drive/walk median hint appears only
+  AFTER a guess is typed; accepting "Plan with N min" stores
+  driveGuessMinutes/walkGuessMinutes = 0 so the rep is unscored.
+- **Midnight anchors roll back**: a transit departure/pickup time is always
+  placed within 24h BEFORE the arrival (engine rollBeforeArrival).
+- **Free solo** (/solo, unlocked at level ≥3, entry on home): destination +
+  time only, delta measured from the arrive tap, saved as Debrief{solo}.
+- **Execute extras**: "Already doing it — started ~2/5m ago" backdate
+  buttons when past start; discard link (logs nothing); mm:ss digits hidden
+  (~ ~ ~) on guessed blocks at level ≥2 (drain bar only).
+
 ## Psychological-loop features (Phase 4)
 
 - **Lock gate**: the 20s visualization is enforced — click "Start the 20
