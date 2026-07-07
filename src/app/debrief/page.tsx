@@ -16,6 +16,7 @@ import {
 import { formatTime } from "@/lib/engine";
 import { LEVELS, earnedLevel, onTimeStreak, stepToward } from "@/lib/graduation";
 import { planNudgeCue, syncCues } from "@/lib/push-client";
+import { askCoach, buildAppState } from "@/lib/coach-client";
 import { GraduationLevel, Trip } from "@/lib/types";
 
 const CAUSES = [
@@ -47,6 +48,7 @@ export default function DebriefPage() {
     to: GraduationLevel;
   } | null>(null);
   const [streak, setStreak] = useState(0);
+  const [insight, setInsight] = useState<string | null>(null);
 
   useEffect(() => {
     const t = loadTrip();
@@ -92,6 +94,18 @@ export default function DebriefPage() {
     // Habit anchor: one evening nudge to plan the next arrival while calm.
     void syncCues([planNudgeCue(new Date())]);
     setSaved(true);
+    // Coach's read: one grounded observation about THIS arrival, async and
+    // best-effort — the debrief never waits on it.
+    void askCoach([
+      {
+        role: "user",
+        content: `${buildAppState()}\n\nI just logged this arrival: ${trip!.destination}, ${
+          delta === 0 ? "exactly on time" : `${Math.abs(delta)} min ${delta < 0 ? "early" : "late"}`
+        }${causes.length ? `, causes: ${causes.join(", ")}` : ""}. In one or two sentences, give me the single most useful observation from my record about this. No preamble, no plan proposal.`,
+      },
+    ]).then((res) => {
+      if (res.reply) setInsight(res.reply);
+    });
   }
 
   const early = delta < 0;
@@ -112,6 +126,11 @@ export default function DebriefPage() {
           {onTime && streak >= 2 && (
             <p className="mt-3 rounded-full bg-primary/12 px-4 py-2 text-sm font-bold text-primary">
               🔥 {streak} on-time arrivals in a row
+            </p>
+          )}
+          {insight && (
+            <p className="mt-3 rounded-xl bg-accent/10 px-4 py-2.5 text-left text-sm">
+              <span className="font-bold text-accent">Coach&apos;s read:</span> {insight}
             </p>
           )}
         </section>
