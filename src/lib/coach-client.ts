@@ -126,7 +126,8 @@ export function coachPlanToTrip(plan: CoachPlan): { trip?: Trip; error?: string 
       source: t.minutes ? "guess" : fromHistory ? "history" : "prior",
     };
   });
-  if (tasks.length === 0) return { error: "The plan had no prep tasks." };
+  // Zero tasks is legitimate: "I'm heading out right now" — just the
+  // door, the travel chain, and the clock.
 
   const travel = Math.round(plan.travelMinutes ?? 0);
   let transit: TransitDetails;

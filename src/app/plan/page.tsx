@@ -47,6 +47,8 @@ export default function Plan() {
   const [step, setStep] = useState(0);
   const [destination, setDestination] = useState("");
   const [arrivalTime, setArrivalTime] = useState("");
+  const [arrivalDateStr, setArrivalDateStr] = useState(""); // empty = next occurrence
+  const [noPrep, setNoPrep] = useState(false);
   const [mode, setMode] = useState<TransitMode | null>(null);
   const [driveGuess, setDriveGuess] = useState("");
   const [driveSuggested, setDriveSuggested] = useState(false);
@@ -70,17 +72,38 @@ export default function Plan() {
 
   useEffect(() => setNow(new Date()), [step]);
 
-  /** Arrival as a Date — today, or tomorrow if that time already passed. */
+  /**
+   * Arrival as a Date. With an explicit date picked, use it literally
+   * (planning forward — Thursday's appointment on Monday). Without one,
+   * today, rolling to tomorrow if the time already passed.
+   */
   const arrivalDate = useMemo(() => {
     if (!arrivalTime || !now) return null;
+    if (arrivalDateStr) {
+      const [y, mo, day] = arrivalDateStr.split("-").map(Number);
+      const [h, mi] = arrivalTime.split(":").map(Number);
+      return new Date(y, mo - 1, day, h, mi, 0, 0);
+    }
     const d = timeOnSameDay(arrivalTime, now);
     // Roll by calendar day, not +24h of milliseconds — a DST weekend would
     // land an armed airport run a full hour off.
     if (d.getTime() < now.getTime()) d.setDate(d.getDate() + 1);
     return d;
-  }, [arrivalTime, now]);
+  }, [arrivalTime, arrivalDateStr, now]);
 
-  const isTomorrow = !!(arrivalDate && now && arrivalDate.toDateString() !== now.toDateString());
+  const arrivalInPast = !!(arrivalDate && now && arrivalDate.getTime() < now.getTime());
+  const isTomorrow =
+    !arrivalDateStr && !!(arrivalDate && now && arrivalDate.toDateString() !== now.toDateString());
+  /** "tomorrow" for a rolled time; the weekday+date for an explicit future day. */
+  const dayLabel = (() => {
+    if (!arrivalDate || !now || arrivalDate.toDateString() === now.toDateString()) return null;
+    if (isTomorrow) return "tomorrow";
+    return arrivalDate.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+    });
+  })();
 
   const transit: TransitDetails | null = useMemo(() => {
     if (!mode) return null;
@@ -123,7 +146,7 @@ export default function Plan() {
   );
 
   const timeline = useMemo(() => {
-    if (!arrivalDate || !transit || plannedTasks.length === 0) return null;
+    if (!arrivalDate || !transit || (plannedTasks.length === 0 && !noPrep)) return null;
     const settings = loadSettings();
     return buildTimeline({
       arrival: arrivalDate,
@@ -131,7 +154,7 @@ export default function Plan() {
       transit,
       tasks: plannedTasks,
     });
-  }, [arrivalDate, transit, plannedTasks]);
+  }, [arrivalDate, transit, plannedTasks, noPrep]);
 
   /**
    * The no-guess plan for a task. Plans at ~p75 (your slow-ish day), not
@@ -147,6 +170,7 @@ export default function Plan() {
   }
 
   function toggleTask(taskId: string) {
+    setNoPrep(false);
     const existing = selections.find((s) => s.taskId === taskId);
     if (existing) {
       setSelections(selections.filter((s) => s.taskId !== taskId));
@@ -258,7 +282,7 @@ export default function Plan() {
         ? { ...s, taskId: `${s.taskId}:${slug(destination)}` }
         : s,
     );
-    saveLastTaskIds(plannedTasks.map((t) => t.taskId));
+    if (plannedTasks.length > 0) saveLastTaskIds(plannedTasks.map((t) => t.taskId));
     const settings = loadSettings();
     const trip: Trip = {
       id: `trip-${arrivalDate.getTime()}`,
@@ -281,7 +305,7 @@ export default function Plan() {
   const unplannedCount = selections.filter((s) => s.planned === undefined).length;
   const stepValid =
     step === 0
-      ? destination.trim() && arrivalTime && mode
+      ? destination.trim() && arrivalTime && mode && !arrivalInPast
       : step === 1
         ? (mode === "driving" || mode === "pickingUp"
             ? Number(driveGuess) > 0
@@ -290,7 +314,7 @@ export default function Plan() {
               : mode === "transit"
                 ? !!transitDeparture
                 : !!pickupTime)
-        : plannedTasks.length > 0 && unplannedCount === 0;
+        : noPrep || (plannedTasks.length > 0 && unplannedCount === 0);
 
   /**
    * Reverse the anchor question for pickup/transit: given required arrival,
@@ -342,17 +366,35 @@ export default function Plan() {
               <VoiceInput label="Say the destination" onResult={setDestination} />
             </div>
           </label>
-          <label className="flex flex-col gap-1.5 text-sm font-medium">
-            Must arrive by
-            <Input
-              type="time"
-              value={arrivalTime}
-              onChange={(e) => setArrivalTime(e.target.value)}
-            />
-          </label>
-          {isTomorrow && (
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
+              Must arrive by
+              <Input
+                type="time"
+                value={arrivalTime}
+                onChange={(e) => setArrivalTime(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm font-medium">
+              On
+              <Input
+                type="date"
+                value={arrivalDateStr}
+                min={now ? `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}` : undefined}
+                onChange={(e) => setArrivalDateStr(e.target.value)}
+              />
+            </label>
+          </div>
+          {dayLabel && !arrivalInPast && (
             <p className="w-fit rounded-full bg-accent/15 px-3 py-1 text-xs font-bold text-accent">
-              That time already passed today — planning for TOMORROW
+              {isTomorrow
+                ? "That time already passed today — planning for TOMORROW"
+                : `Planning ahead for ${dayLabel}`}
+            </p>
+          )}
+          {arrivalInPast && (
+            <p className="w-fit rounded-full bg-destructive/15 px-3 py-1 text-xs font-bold text-destructive">
+              That date and time is in the past — pick a future one
             </p>
           )}
           <p className="text-xs text-muted-foreground">
@@ -602,7 +644,23 @@ export default function Plan() {
                   ? "Coach level: your guess is the plan unless it's far off your record — then Anchor steps in."
                   : "Pick what you still need to do, then guess each duration from your gut before seeing what it typically takes. That guess is the rep — this is the gym."}
           </p>
-          {lastTaskIds.length > 0 && selections.length === 0 && (
+          <button
+            onClick={() => {
+              setNoPrep(true);
+              setSelections([]);
+              setStep(3);
+            }}
+            aria-pressed={noPrep}
+            className={`p-3.5 text-left ${noPrep ? "surface-active" : "surface-soft"}`}
+          >
+            <span className={`block text-sm font-semibold ${noPrep ? "text-primary" : ""}`}>
+              Nothing — I&apos;m heading out now
+            </span>
+            <span className="text-xs text-muted-foreground">
+              Skip prep entirely: just the door, the travel, and the clock.
+            </span>
+          </button>
+          {lastTaskIds.length > 0 && selections.length === 0 && !noPrep && (
             <button onClick={selectUsual} className="surface-active p-3.5 text-left">
               <span className="block text-sm font-semibold text-primary">
                 My usual — {lastTaskIds.length} tasks, ~
@@ -759,7 +817,7 @@ export default function Plan() {
             <p>
               Target: <b className="text-primary">{formatTime(timeline.targetArrival)}</b>{" "}
               at {destination}
-              {isTomorrow && <b className="text-accent"> tomorrow</b>} (
+              {dayLabel && <b className="text-accent"> {dayLabel}</b>} (
               {loadSettings().earlyBufferMinutes} min early).
             </p>
             <p className="mt-1">

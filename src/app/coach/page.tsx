@@ -151,7 +151,9 @@ export default function Coach() {
                     · {t.plan.mode}
                   </p>
                   <p className="text-xs text-muted-foreground">
-                    {t.plan.tasks.map((x) => x.label).join(" → ")}
+                    {t.plan.tasks.length
+                      ? t.plan.tasks.map((x) => x.label).join(" → ")
+                      : "straight out the door — no prep"}
                   </p>
                   <Button
                     size="sm"
