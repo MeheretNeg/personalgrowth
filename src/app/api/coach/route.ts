@@ -61,7 +61,7 @@ const PLAN_TOOL: Anthropic.Tool = {
       tasks: {
         type: "array",
         description:
-          "Prep tasks before leaving, in order. Use taskIds from app_state's task list where they match; freeform labels otherwise.",
+          "Prep tasks before leaving, in order. Use taskIds from app_state's task list where they match; freeform labels otherwise. Empty array = they're leaving immediately, no prep.",
         items: {
           type: "object",
           properties: {

@@ -132,9 +132,11 @@ export default function Lock() {
             {trip.destination} — first block {formatTime(startAt)}
           </h1>
           <p className="mt-3 font-mono text-5xl font-bold tabular-nums">
-            {minsToStart * 60 > 5940
-              ? `${Math.floor(minsToStart / 60)}h ${Math.floor(minsToStart % 60)}m`
-              : formatCountdown(Math.max(0, minsToStart * 60))}
+            {minsToStart > 2880
+              ? `${Math.floor(minsToStart / 1440)}d ${Math.floor((minsToStart % 1440) / 60)}h`
+              : minsToStart * 60 > 5940
+                ? `${Math.floor(minsToStart / 60)}h ${Math.floor(minsToStart % 60)}m`
+                : formatCountdown(Math.max(0, minsToStart * 60))}
           </p>
           <p className="mt-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
             {startDue ? "it's time" : "until the first block"}
