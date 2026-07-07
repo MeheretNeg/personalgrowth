@@ -145,6 +145,21 @@ The full loop to drive (all state in localStorage, no backend):
 - **Exit checklist** is editable (✎ chip on the final staging step),
   stored in settings.exitChecklist.
 
+## Anchor Coach (conversational AI)
+
+Gated on ANTHROPIC_API_KEY: `GET /api/coach` → {enabled}; POST 503s
+without it and /coach shows a setup screen; the home entry hides. The
+client sends chat turns with an `<app_state>` JSON block (calibration,
+bias, medians, history, level) embedded in the FIRST user turn only
+(keeps the server-side prompt cache stable). The model (claude-opus-4-8,
+adaptive thinking, cached system prompt) may call the propose_plan tool;
+the client's coachPlanToTrip() validates it and builds a locked Trip via
+the same engine as the wizard (guessMinutes 0 = unscored quick-plan
+semantics; travel taskIds get the drive:/walk: destination slug). Test by
+stubbing `**/api/coach` with page.route — assert the app_state block is
+present in the request and that "lock it" lands on /lock with a real
+timeline. Debrief fires a best-effort one-turn insight request after save.
+
 ## Web push (closed-app cues)
 
 Disabled without VAPID env keys (`/api/push/sync` → 503; client no-ops).

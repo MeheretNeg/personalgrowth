@@ -66,6 +66,14 @@ door-critical, with vibration; they fade with level too. A service worker
 Android PWAs), reopens the app on notification tap, and serves an offline
 shell.
 
+Anchor Coach (conversational AI): set `ANTHROPIC_API_KEY` (see
+`.env.example`) and a Claude-powered coach switches on — chat/voice
+planning ("airport by 11:45, driving, need to shower and pack" → a locked
+backward-planned timeline), questions answered from YOUR measured record
+(calibration, bias, medians, arrival history — the whole state is wired
+into every request), and a one-line coach's read after each debrief.
+Without the key the feature hides itself entirely.
+
 Phase 3 (push shipped): with VAPID keys set, cues fire even with the app
 fully closed. The client re-posts its remaining schedule-anchored cues to
 `/api/push/sync` on every trip transition; a server loop

@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { loadTrip, loadLogs, loadDebriefs, loadSettings, loadSolo } from "@/lib/store";
 import { calibrationScore } from "@/lib/calibration";
 import { onTimeRate, onTimeStreak } from "@/lib/graduation";
+import { coachEnabled } from "@/lib/coach-client";
 import { Trip } from "@/lib/types";
 
 const PHASE_ROUTE: Record<string, string> = {
@@ -25,7 +26,12 @@ export default function Pulse() {
   const [rate, setRate] = useState({ hit: 0, of: 0 });
   const [level, setLevel] = useState(1);
   const [soloActive, setSoloActive] = useState<{ destination: string; arrivalTime: string } | null>(null);
+  const [coachOn, setCoachOn] = useState(false);
   const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    void coachEnabled().then(setCoachOn);
+  }, []);
 
   useEffect(() => {
     const t = loadTrip();
@@ -74,6 +80,17 @@ export default function Pulse() {
         >
           Plan my next arrival
         </Button>
+        {coachOn && (
+          <button
+            onClick={() => router.push("/coach")}
+            className="surface-soft p-3 text-sm font-semibold"
+          >
+            Talk to Anchor
+            <span className="block text-xs font-normal text-muted-foreground">
+              Plan by voice or text — the coach knows your record.
+            </span>
+          </button>
+        )}
         {soloActive ? (
           <button onClick={() => router.push("/solo")} className="surface-active p-3 text-sm font-semibold text-primary">
             Free solo running: {soloActive.destination} by{" "}
