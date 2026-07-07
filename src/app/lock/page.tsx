@@ -8,6 +8,7 @@ import { formatTime, minutesUntil } from "@/lib/engine";
 import { requestNotifyPermission } from "@/lib/notify";
 import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
 import { formatCountdown } from "@/components/time-decay";
+import { downloadIcs, tripToLeaveByIcs } from "@/lib/calendar";
 import { Trip } from "@/lib/types";
 
 /** Recurring debrief causes get a tailored countermeasure in the chain. */
@@ -259,6 +260,18 @@ export default function Lock() {
           </p>
         </div>
       )}
+
+      {(() => {
+        const ics = tripToLeaveByIcs(trip, now);
+        return ics ? (
+          <button
+            onClick={() => downloadIcs(`leave-for-${trip.destination.toLowerCase().replace(/\s+/g, "-")}.ics`, ics)}
+            className="text-center text-xs font-medium text-accent underline"
+          >
+            Add leave-by time to my calendar
+          </button>
+        ) : null;
+      })()}
 
       <button onClick={discard} className="text-center text-xs text-muted-foreground underline">
         Discard this plan

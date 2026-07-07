@@ -1,5 +1,5 @@
 import { BUFFERS } from "./priors";
-import { PlannedTask, TimelineStep, TransitDetails } from "./types";
+import { PlannedTask, TimelineStep, TransitDetails, Trip } from "./types";
 
 /**
  * The backward-planning engine (Park et al. 2017: planning in reverse from
@@ -162,6 +162,51 @@ export function buildTimeline(input: TimelineInput): TimelineResult {
 /** Signed minutes between now and a step boundary (negative = behind). */
 export function minutesUntil(iso: string, now: Date): number {
   return (new Date(iso).getTime() - now.getTime()) / 60_000;
+}
+
+export interface LeaveByInfo {
+  /** When you must be walking out the door (ISO). */
+  doorAt: string;
+  /** Signed minutes until the door deadline (negative = already past it). */
+  minsUntilDoor: number;
+  /** Required arrival time (Date). */
+  requiredArrival: Date;
+  /** Leaving right now, when you'd arrive. */
+  arriveIfLeaveNow: Date;
+  /** Minutes you'd be LATE if you left now (0 if still early). */
+  lateIfLeaveNow: number;
+  /** Minutes of early-cushion still intact before you tip into late. */
+  cushionLeftMin: number;
+}
+
+/**
+ * The single most important number for a time-blind user: leave-by. Every
+ * block before the door can be rushed or cut; once travel starts, the
+ * arrival time is fixed. This computes the door deadline and the concrete
+ * consequence of missing it — arrival math, not vibes.
+ *
+ * Anchored on the first self-powered travel step. Pickup/transit modes
+ * where the vehicle is the anchor return null (the schedule owns the time,
+ * and the app already warns if the departure is after arrival).
+ */
+export function leaveByInfo(trip: Trip, now: Date): LeaveByInfo | null {
+  const doorStep = trip.timeline.find((s) => s.kind === "travel");
+  if (!doorStep) return null;
+  const doorAt = new Date(doorStep.startsAt);
+  const last = trip.timeline[trip.timeline.length - 1];
+  // Fixed travel duration from the door to the arrival anchor.
+  const travelMs = new Date(last.endsAt).getTime() - doorAt.getTime();
+  const requiredArrival = new Date(trip.arrivalTime);
+  const arriveIfLeaveNow = new Date(Math.max(now.getTime(), doorAt.getTime()) + travelMs);
+  const lateMs = arriveIfLeaveNow.getTime() - requiredArrival.getTime();
+  return {
+    doorAt: doorStep.startsAt,
+    minsUntilDoor: minutesUntil(doorStep.startsAt, now),
+    requiredArrival,
+    arriveIfLeaveNow,
+    lateIfLeaveNow: Math.max(0, Math.round(lateMs / 60_000)),
+    cushionLeftMin: Math.round(-lateMs / 60_000),
+  };
 }
 
 /**
