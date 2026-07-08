@@ -37,11 +37,13 @@ The full loop to drive (all state in localStorage, no backend):
 3. step 2: mode details (drive or walk minutes / transit departure /
    pickup time). Drive and walk blocks carry taskId `drive:`/`walk:` +
    destination slug, so they're silently measured and learned per route.
-4. step 3: guess-first tasks — select chip → fill minutes → "Lock my
-   guess & compare" → choose Keep/Safe/history. IMPORTANT INVARIANT: the
-   prior ("Typical person: N min") must NOT be in the DOM before the
-   guess is locked.
-5. step 4: review timeline → "Lock timeline"
+4. step 3: guess-first tasks — select chip → the task's card scrolls in +
+   focuses right under the chips → fill minutes → "Lock my guess &
+   compare" → choose Keep/Slow-day/history (restyled as option rows).
+   IMPORTANT INVARIANT: the prior (the "Slow day N m" / "typical N m"
+   numbers) must NOT be in the DOM before the guess is locked — assert on
+   `/slow day/i` count 0 before, 1 after.
+5. step 4: summary dashboard → "Lock timeline"
 6. `/lock`: if-then lines → "I saw it" → "Timeline locked — begin"
 7. `/execute`: per step "Start" → fastForward → "Done — next". Final
    staging step shows the exit checklist and an "Out the door" button.
@@ -90,6 +92,32 @@ The full loop to drive (all state in localStorage, no backend):
   timeline starts in the past; /execute always shows the drift pill and a
   mono mm:ss countdown (block remaining when running, time-to-start when
   pending).
+
+## Plan wizard UX (Phase 6)
+
+- **Summary dashboard** (/plan step 4, heading still "Your timeline,
+  backwards"): opens with the plain-language headline the user asked for —
+  "‹Destination› · ‹tomorrow/day› — Arrive by ‹target› · leave home by
+  ‹departAt›" (verb is mode-aware: "be ready by" for pickup, "leave for the
+  stop by" for transit). Below it: three tappable **Edit** section cards
+  (Where & when → step 0, Getting there → step 1, Before you go → step 2),
+  a **"The math, spelled out"** breakdown (start ready → +getting ready →
+  +staged → out the door → +travel → walk in) that makes the "why 6:16?"
+  question answerable, and an open `<details>` "Every step, in order" list.
+  Assert on `/the math, spelled out/i`, `/arrive by \d+:\d{2}/i`, and
+  `/leave home by \d+:\d{2}/i`.
+- **leaveDoorAt unified**: `buildTimeline().leaveDoorAt` now anchors on the
+  first `travel` step (the real walk-out), matching `leaveByInfo` — the
+  review's "leave home by" and the execute leave-by banner agree to the
+  minute. (Was the staging start, which read as broken math: "Out the door
+  8:00" in review vs the 8:05 door on execute.)
+- **Draft resume** (`anchor:planDraft`): the wizard persists every change
+  (skipping the mount pass so it never stomps the offered draft). On mount,
+  if a draft has content AND no trip is locked/executing, step 0 shows a
+  dismissible "Pick up where you left off?" banner — never auto-restores.
+  Resume applies the saved state and jumps to the saved step; Discard clears
+  it. lock() clears the draft. Fresh `browser.newContext()` per scenario =
+  isolated draft, so the banner never leaks between tests.
 
 ## Audit-round behaviors (Phase 5)
 

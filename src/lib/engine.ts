@@ -150,7 +150,11 @@ export function buildTimeline(input: TimelineInput): TimelineResult {
   }
   const steps = reversed.reverse();
 
-  const firstTravel = steps.find((s) => s.kind !== "prep");
+  // "Out the door" is the first self-powered TRAVEL step, not the staging
+  // block before it — otherwise the review's leave-time (staging start)
+  // disagreed with the leave-by banner on the execute screen (walk-out),
+  // which read as broken math. This unifies both on the real walk-out.
+  const firstTravel = steps.find((s) => s.kind === "travel");
   return {
     steps,
     startAt: new Date(steps[0].startsAt),

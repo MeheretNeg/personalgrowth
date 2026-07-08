@@ -12,6 +12,7 @@ const KEYS = {
   settings: "anchor:settings",
   lastTasks: "anchor:lastTasks",
   solo: "anchor:solo",
+  planDraft: "anchor:planDraft",
 } as const;
 
 const DEFAULT_SETTINGS: Settings = { earlyBufferMinutes: 10, level: 1 };
@@ -71,6 +72,40 @@ export const loadSettings = (): Settings => {
   return { ...DEFAULT_SETTINGS, ...stored };
 };
 export const saveSettings = (s: Settings): void => write(KEYS.settings, s);
+
+/**
+ * A half-finished plan. The wizard has several screens; a time-blind user
+ * who gets interrupted mid-plan and loses everything won't come back. We
+ * persist the draft on every change and offer to resume it — but never
+ * auto-restore (that would surprise someone deliberately starting fresh).
+ */
+export interface PlanDraft {
+  savedAt: string;
+  step: number;
+  destination: string;
+  arrivalTime: string;
+  arrivalDateStr: string;
+  noPrep: boolean;
+  mode: string | null;
+  driveGuess: string;
+  driveSuggested: boolean;
+  walkGuess: string;
+  walkSuggested: boolean;
+  transitDeparture: string;
+  walkToStop: string;
+  transitRideGuess: string;
+  pickupTime: string;
+  pickupDriveGuess: string;
+  planMode: "train" | "quick";
+  selections: unknown[];
+}
+
+export const loadPlanDraft = (): PlanDraft | null =>
+  read<PlanDraft | null>(KEYS.planDraft, null);
+export const savePlanDraft = (d: PlanDraft): void => write(KEYS.planDraft, d);
+export const clearPlanDraft = (): void => {
+  if (typeof window !== "undefined") window.localStorage.removeItem(KEYS.planDraft);
+};
 
 /** Ask the browser to keep our storage from being auto-evicted. Best-effort. */
 export function requestPersistentStorage(): void {
