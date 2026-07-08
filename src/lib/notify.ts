@@ -1,5 +1,17 @@
-import { minutesUntil } from "./engine";
-import { GraduationLevel, TimelineStep } from "./types";
+import { formatTime, leaveByInfo, minutesUntil } from "./engine";
+import { GraduationLevel, TimelineStep, Trip } from "./types";
+
+/**
+ * Conversational phrasing without a backend. Cues must work offline and
+ * with the app closed, so the copy is generated locally — but varied and
+ * human, picked deterministically by a key hash so a given cue always
+ * reads the same (stable dedup) while different cues sound different.
+ */
+function pick(pool: string[], seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return pool[Math.abs(h) % pool.length];
+}
 
 /**
  * Notification escalation during EXECUTE. The ladder climbs with lateness:
@@ -88,6 +100,78 @@ export interface CueInput {
   isFinalStaging: boolean;
   now: Date;
   level: GraduationLevel;
+}
+
+/**
+ * The leave-by cue: the consequence-framed departure alert. Fires as the
+ * door deadline approaches and after it passes, escalating with the actual
+ * arrival cost. This is the highest-value nudge for a time-blind user —
+ * "leave now or you'll be N late" beats any generic "hurry up".
+ */
+export function leaveByCue(trip: Trip, level: GraduationLevel, now: Date): Cue | null {
+  if (level >= 4) return null;
+  const info = leaveByInfo(trip, now);
+  if (!info) return null;
+  const mins = Math.round(info.minsUntilDoor);
+  const doorClock = formatTime(info.doorAt);
+
+  // Heads-up window: 10 and 5 minutes before you must leave.
+  if (mins === 10 || mins === 5) {
+    return {
+      key: `leaveby-heads-${mins}`,
+      title: pick(
+        [`Out the door in ${mins} min`, `${mins} minutes till you leave`, `Wheels up in ${mins}`],
+        `h${mins}`,
+      ),
+      body: pick(
+        [
+          `Be walking out by ${doorClock} to keep your whole cushion. Start wrapping up.`,
+          `You need to leave at ${doorClock}. ${mins} minutes — begin closing things out.`,
+          `Door time is ${doorClock}. Give yourself these ${mins} minutes to land, not to start something new.`,
+        ],
+        `hb${mins}`,
+      ),
+      urgency: mins <= 5 ? "warn" : "info",
+    };
+  }
+
+  // The door moment itself.
+  if (mins === 0) {
+    return {
+      key: "leaveby-now",
+      title: pick(["It's time — go", "Leave now", "Out the door"], "n"),
+      body: pick(
+        [
+          "This is your leave time. Keys, wallet, phone — walk.",
+          "Right now is on-time. Every minute from here eats your cushion.",
+          "Go. You planned for this exact minute — trust it and move.",
+        ],
+        "nb",
+      ),
+      urgency: "critical",
+    };
+  }
+
+  // Past the door — consequence math, escalating each minute.
+  if (mins < 0) {
+    const late = mins <= -1 ? Math.floor(-info.minsUntilDoor) : 0;
+    const nag = Math.floor(late / 1); // every minute past matters here
+    if (info.lateIfLeaveNow > 0) {
+      return {
+        key: `leaveby-late-${nag}`,
+        title: pick(["You're going to be late", "Moving into late", "This is the late zone"], "L"),
+        body: `Leave this second and you arrive about ${info.lateIfLeaveNow} min late. Every minute you wait adds one. Go now.`,
+        urgency: "critical",
+      };
+    }
+    return {
+      key: `leaveby-cushion-${nag}`,
+      title: pick(["Cushion's shrinking", "Past your leave time", "Move now"], "C"),
+      body: `You're ${late} min past leave time — ${info.cushionLeftMin} min of cushion left before you're actually late. Out the door.`,
+      urgency: "warn",
+    };
+  }
+  return null;
 }
 
 /** The single cue due right now, or null. Pure — callers dedupe by key. */

@@ -92,7 +92,10 @@ function matchTaskId(label: string): string {
   const hit = TASK_PRIORS.find(
     (t) => t.label.toLowerCase() === norm || t.id === slug(label),
   );
-  return hit?.id ?? "other";
+  // Unmatched freeform tasks get a UNIQUE id per label — otherwise two
+  // custom tasks both become "other", so the replan dialog can't tell them
+  // apart and their duration logs merge into one polluted history.
+  return hit?.id ?? `other:${slug(label) || "task"}`;
 }
 
 /** Validate + convert a propose_plan payload into a locked Trip. */
@@ -112,18 +115,20 @@ export function coachPlanToTrip(plan: CoachPlan): { trip?: Trip; error?: string 
 
   const tasks: PlannedTask[] = (plan.tasks ?? []).slice(0, 12).map((t) => {
     const taskId = matchTaskId(t.label);
-    const planned =
-      t.minutes && t.minutes > 0
-        ? Math.round(t.minutes)
-        : (planningMinutes(logs, taskId) ?? getPrior(taskId)!.p75);
+    // Freeform "other:<slug>" ids have no prior of their own — fall back to
+    // the generic "other" prior for a sensible default duration/label.
+    const prior = getPrior(taskId) ?? getPrior("other")!;
+    const clamped =
+      t.minutes && t.minutes > 0 ? Math.min(600, Math.round(t.minutes)) : undefined;
+    const planned = clamped ?? planningMinutes(logs, taskId) ?? prior.p75;
     const fromHistory =
       logs.filter((l) => l.taskId === taskId).length >= MIN_LOGS_FOR_HISTORY;
     return {
       taskId,
-      label: getPrior(taskId)?.id === "other" ? t.label : getPrior(taskId)!.label,
+      label: getPrior(taskId) ? prior.label : t.label.slice(0, 60),
       guessMinutes: 0, // coach-planned = quick-plan semantics; not a scored rep
       plannedMinutes: planned,
-      source: t.minutes ? "guess" : fromHistory ? "history" : "prior",
+      source: clamped ? "guess" : fromHistory ? "history" : "prior",
     };
   });
   // Zero tasks is legitimate: "I'm heading out right now" — just the
@@ -177,8 +182,46 @@ export function coachPlanToTrip(plan: CoachPlan): { trip?: Trip; error?: string 
     lockedAt: new Date().toISOString(),
   };
   saveTrip(trip);
-  saveLastTaskIds(tasks.map((t) => t.taskId));
+  // Don't let a "heading out now" (no-prep) coach plan wipe "My usual".
+  if (tasks.length > 0) saveLastTaskIds(tasks.map((t) => t.taskId));
   return { trip };
+}
+
+/** Defense in depth: never let an unshaped plan reach the UI/trip layer. */
+export function parseCoachPlan(input: unknown): CoachPlan | null {
+  if (!input || typeof input !== "object") return null;
+  const p = input as Record<string, unknown>;
+  const modes = ["driving", "walking", "transit", "pickup", "pickingUp"];
+  if (
+    typeof p.destination !== "string" ||
+    !p.destination.trim() ||
+    typeof p.arrivalTime !== "string" ||
+    !/^\d{1,2}:\d{2}$/.test(p.arrivalTime) ||
+    typeof p.mode !== "string" ||
+    !modes.includes(p.mode)
+  ) {
+    return null;
+  }
+  const tasks = (Array.isArray(p.tasks) ? p.tasks : [])
+    .filter((t): t is Record<string, unknown> => !!t && typeof t === "object" && typeof t.label === "string")
+    .map((t) => ({
+      label: (t.label as string).slice(0, 60),
+      minutes:
+        typeof t.minutes === "number" && isFinite(t.minutes) && t.minutes > 0
+          ? Math.round(t.minutes)
+          : undefined,
+    }))
+    .filter((t) => t.label.trim())
+    .slice(0, 12);
+  return {
+    destination: p.destination.trim(),
+    arrivalTime: p.arrivalTime,
+    mode: p.mode as CoachPlan["mode"],
+    travelMinutes: typeof p.travelMinutes === "number" ? p.travelMinutes : undefined,
+    transitDeparture: typeof p.transitDeparture === "string" ? p.transitDeparture : undefined,
+    pickupTime: typeof p.pickupTime === "string" ? p.pickupTime : undefined,
+    tasks,
+  };
 }
 
 export async function askCoach(

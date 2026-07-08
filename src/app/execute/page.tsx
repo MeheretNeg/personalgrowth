@@ -13,8 +13,8 @@ import {
 } from "@/components/ui/dialog";
 import { TimeDecay, formatCountdown } from "@/components/time-decay";
 import { appendLog, clearTrip, loadSettings, loadTrip, saveSettings, saveTrip } from "@/lib/store";
-import { formatTime, minutesUntil, rebuildRemaining } from "@/lib/engine";
-import { cueForStep, fireCue } from "@/lib/notify";
+import { formatTime, leaveByInfo, minutesUntil, rebuildRemaining } from "@/lib/engine";
+import { cueForStep, fireCue, leaveByCue } from "@/lib/notify";
 import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
 import { TimelineStep, Trip } from "@/lib/types";
 
@@ -24,11 +24,14 @@ const DEFAULT_CHECKLIST = ["Keys", "Wallet", "Phone", "Charger"];
 function guessFor(trip: Trip, step: TimelineStep): number | null {
   if (!step.taskId) return null;
   if (step.taskId.startsWith("drive:")) {
-    const g = trip.transit.driveGuessMinutes ?? trip.transit.driveMinutes ?? 0;
-    return g > 0 ? g : null; // 0 = suggestion accepted, not a blind rep
+    // Legacy trips (no driveGuessMinutes) didn't record whether the number
+    // was a blind guess or an accepted suggestion — treat as unscored (0)
+    // rather than crediting the planned value as a perfect rep.
+    const g = trip.transit.driveGuessMinutes ?? 0;
+    return g > 0 ? g : null;
   }
   if (step.taskId.startsWith("walk:")) {
-    const g = trip.transit.walkGuessMinutes ?? trip.transit.walkMinutes ?? 0;
+    const g = trip.transit.walkGuessMinutes ?? 0;
     return g > 0 ? g : null;
   }
   const task = trip.tasks.find((t) => t.taskId === step.taskId);
@@ -82,15 +85,21 @@ export default function Execute() {
     step?.kind === "staging" &&
     trip.timeline.slice(idx + 1).every((s) => s.kind !== "prep");
 
-  // Escalating cues: heads-up → it's time → nags → door-critical.
+  // Escalating cues: heads-up → it's time → nags → door-critical, PLUS the
+  // consequence-framed leave-by alert (the highest-value nudge).
   useEffect(() => {
-    if (!step) return;
-    const cue = cueForStep({ step, running, isFinalStaging, now, level });
-    if (cue && !firedCues.current.has(cue.key)) {
-      firedCues.current.add(cue.key);
-      fireCue(cue);
+    if (!step || !trip) return;
+    const cues = [
+      cueForStep({ step, running, isFinalStaging, now, level }),
+      leaveByCue(trip, level, now),
+    ];
+    for (const cue of cues) {
+      if (cue && !firedCues.current.has(cue.key)) {
+        firedCues.current.add(cue.key);
+        fireCue(cue);
+      }
     }
-  }, [now, step, running, isFinalStaging, level]);
+  }, [now, step, running, isFinalStaging, level, trip]);
 
   // Time must stay visible: keep the screen awake for the whole execution,
   // like turn-by-turn navigation. Best-effort — re-acquired on tab return.
@@ -190,7 +199,7 @@ export default function Execute() {
   }
 
   function openReplan() {
-    setKeepIds(new Set(remainingPrep.map((s) => s.taskId!).filter(Boolean)));
+    setKeepIds(new Set(remainingPrep.map((s) => s.id)));
     setReplanOpen(true);
   }
 
@@ -233,6 +242,12 @@ export default function Execute() {
   const secsToStart = step ? minutesUntil(step.startsAt, now) * 60 : 0;
   const overdueStart = step && !running && secsToStart <= 0;
 
+  // Leave-by: the consequence banner. Show it once the door is within ~15
+  // minutes or already past — the moment that actually decides on-time.
+  const leaveBy = !done ? leaveByInfo(trip, now) : null;
+  const showLeaveBy = leaveBy && leaveBy.minsUntilDoor <= 15;
+  const pastDoor = leaveBy && leaveBy.minsUntilDoor < 0;
+
   // Live fit preview for the replan dialog.
   const replanPreview =
     replanOpen && !done ? rebuildRemaining(trip.timeline, idx, keepIds) : null;
@@ -251,6 +266,39 @@ export default function Execute() {
           </span>
         </p>
       </header>
+
+      {/* Leave-by: the consequence banner. The one number that decides
+          on-time — big, conversational, and impossible to miss. */}
+      {showLeaveBy && leaveBy && (
+        <section
+          className={`${pastDoor ? "surface-alert" : "surface-active"} p-4`}
+          role="alert"
+          aria-live="assertive"
+        >
+          <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+            {pastDoor ? "Past your leave time" : "Out the door by"}
+          </p>
+          <p
+            className={`mt-0.5 text-3xl font-bold tabular-nums ${
+              pastDoor ? "text-destructive" : "text-primary"
+            }`}
+          >
+            {formatTime(leaveBy.doorAt)}
+            {!pastDoor && (
+              <span className="ml-2 text-base font-semibold text-muted-foreground">
+                in {Math.max(0, Math.ceil(leaveBy.minsUntilDoor))} min
+              </span>
+            )}
+          </p>
+          <p className={`mt-1 text-sm font-medium ${pastDoor ? "text-destructive" : ""}`}>
+            {pastDoor
+              ? leaveBy.lateIfLeaveNow > 0
+                ? `If you walked out right now you'd still be about ${leaveBy.lateIfLeaveNow} min late — and every minute you wait adds another. Go.`
+                : `You've got ${leaveBy.cushionLeftMin} min of cushion left before you're actually late. Head for the door now.`
+              : `Leave on time and you arrive ${Math.max(0, Math.round((leaveBy.requiredArrival.getTime() - leaveBy.arriveIfLeaveNow.getTime()) / 60_000))} min early. Wrap up what you're doing — don't start anything new.`}
+          </p>
+        </section>
+      )}
 
       {!done && step && (
         <>
@@ -478,7 +526,9 @@ export default function Execute() {
           </DialogHeader>
           <div className="flex flex-col gap-2">
             {remainingPrep.map((s) => {
-              const kept = s.taskId !== undefined && keepIds.has(s.taskId);
+              // Key by step.id, not taskId — two freeform tasks can share a
+              // taskId, and cutting one must not cut the other.
+              const kept = keepIds.has(s.id);
               return (
                 <button
                   key={s.id}
@@ -486,9 +536,8 @@ export default function Execute() {
                   onClick={() =>
                     setKeepIds((cur) => {
                       const next = new Set(cur);
-                      if (s.taskId === undefined) return next;
-                      if (next.has(s.taskId)) next.delete(s.taskId);
-                      else next.add(s.taskId);
+                      if (next.has(s.id)) next.delete(s.id);
+                      else next.add(s.id);
                       return next;
                     })
                   }

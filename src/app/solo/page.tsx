@@ -37,9 +37,16 @@ export default function Solo() {
   } | null>(null);
 
   useEffect(() => {
-    setSolo(loadSolo());
+    const inFlight = loadSolo();
+    // Free solo is a Level-3+ unlock. Let an in-flight run finish even if
+    // the level dropped mid-run; otherwise bounce sub-L3 users home.
+    if (!inFlight && loadSettings().level < 3) {
+      router.replace("/");
+      return;
+    }
+    setSolo(inFlight);
     setReady(true);
-  }, []);
+  }, [router]);
 
   if (!ready) return null;
 
@@ -57,6 +64,7 @@ export default function Solo() {
   }
 
   function arrived() {
+    if (result) return; // guard double-tap → double log
     const now = new Date();
     const delta = Math.round(
       (now.getTime() - new Date(solo!.arrivalTime).getTime()) / 60_000,

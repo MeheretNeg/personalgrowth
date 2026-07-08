@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,11 +11,13 @@ import {
   loadLastTaskIds,
   loadLogs,
   loadSettings,
+  loadTrip,
   saveLastTaskIds,
   saveSettings,
   saveTrip,
 } from "@/lib/store";
 import { personalMedian, planningMinutes } from "@/lib/calibration";
+import { CalEvent, destinationFrom, parseIcs } from "@/lib/calendar";
 import { PlannedTask, TransitDetails, TransitMode, Trip } from "@/lib/types";
 
 const MODES: { id: TransitMode; label: string; hint: string }[] = [
@@ -49,6 +51,8 @@ export default function Plan() {
   const [arrivalTime, setArrivalTime] = useState("");
   const [arrivalDateStr, setArrivalDateStr] = useState(""); // empty = next occurrence
   const [noPrep, setNoPrep] = useState(false);
+  const [calEvents, setCalEvents] = useState<CalEvent[] | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [mode, setMode] = useState<TransitMode | null>(null);
   const [driveGuess, setDriveGuess] = useState("");
   const [driveSuggested, setDriveSuggested] = useState(false);
@@ -207,6 +211,25 @@ export default function Plan() {
     );
   }
 
+  async function onIcsFile(file: File) {
+    try {
+      const events = parseIcs(await file.text(), new Date());
+      setCalEvents(events);
+    } catch {
+      setCalEvents([]);
+    }
+  }
+
+  function applyCalEvent(e: CalEvent) {
+    setDestination(destinationFrom(e));
+    const p = (n: number) => String(n).padStart(2, "0");
+    setArrivalTime(`${p(e.start.getHours())}:${p(e.start.getMinutes())}`);
+    setArrivalDateStr(
+      `${e.start.getFullYear()}-${p(e.start.getMonth() + 1)}-${p(e.start.getDate())}`,
+    );
+    setCalEvents(null);
+  }
+
   function choosePlanMode(m: "train" | "quick") {
     setPlanMode(m);
     saveSettings({ ...loadSettings(), planMode: m });
@@ -275,6 +298,14 @@ export default function Plan() {
 
   function lock() {
     if (!timeline || !arrivalDate || !transit) return;
+    // Never silently clobber a trip that's armed or already running.
+    const active = loadTrip();
+    if (active && (active.phase === "locked" || active.phase === "executing")) {
+      const ok = window.confirm(
+        `You have a ${active.destination} trip already set up. Replace it with this one?`,
+      );
+      if (!ok) return;
+    }
     // Scope travel calibration to this destination so "work" and "gym"
     // learn separately.
     const steps = timeline.steps.map((s) =>
@@ -355,6 +386,53 @@ export default function Plan() {
 
       {step === 0 && (
         <section className="flex flex-col gap-4">
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".ics,text/calendar"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) void onIcsFile(f);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={() => fileRef.current?.click()}
+            className="surface-soft flex items-center justify-between p-3 text-left text-sm font-semibold"
+          >
+            <span>Import from my calendar</span>
+            <span className="text-xs font-normal text-muted-foreground">.ics file →</span>
+          </button>
+          {calEvents !== null && (
+            <div className="surface flex flex-col gap-1.5 p-3">
+              {calEvents.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No upcoming events found in that file. You can still enter the
+                  trip by hand below.
+                </p>
+              ) : (
+                <>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                    Tap an event to plan for it
+                  </p>
+                  {calEvents.map((e, i) => (
+                    <button
+                      key={i}
+                      onClick={() => applyCalEvent(e)}
+                      className="surface-soft flex items-center justify-between gap-2 p-2.5 text-left text-sm"
+                    >
+                      <span className="min-w-0 truncate font-medium">{e.title}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {e.start.toLocaleDateString(undefined, { month: "short", day: "numeric" })}{" "}
+                        {e.start.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+                      </span>
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
           <label className="flex flex-col gap-1.5 text-sm font-medium">
             Destination
             <div className="flex items-center gap-2">

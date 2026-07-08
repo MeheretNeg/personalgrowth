@@ -1,5 +1,5 @@
 import { BUFFERS } from "./priors";
-import { PlannedTask, TimelineStep, TransitDetails } from "./types";
+import { PlannedTask, TimelineStep, TransitDetails, Trip } from "./types";
 
 /**
  * The backward-planning engine (Park et al. 2017: planning in reverse from
@@ -164,6 +164,55 @@ export function minutesUntil(iso: string, now: Date): number {
   return (new Date(iso).getTime() - now.getTime()) / 60_000;
 }
 
+export interface LeaveByInfo {
+  /** When you must be walking out the door (ISO). */
+  doorAt: string;
+  /** Signed minutes until the door deadline (negative = already past it). */
+  minsUntilDoor: number;
+  /** Required arrival time (Date). */
+  requiredArrival: Date;
+  /** Leaving right now, when you'd arrive. */
+  arriveIfLeaveNow: Date;
+  /** Minutes you'd be LATE if you left now (0 if still early). */
+  lateIfLeaveNow: number;
+  /** Minutes of early-cushion still intact before you tip into late. */
+  cushionLeftMin: number;
+}
+
+/**
+ * The single most important number for a time-blind user: leave-by. Every
+ * block before the door can be rushed or cut; once travel starts, the
+ * arrival time is fixed. This computes the door deadline and the concrete
+ * consequence of missing it — arrival math, not vibes.
+ *
+ * Anchored on the first self-powered travel step. Pickup/transit modes
+ * where the vehicle is the anchor return null (the schedule owns the time,
+ * and the app already warns if the departure is after arrival).
+ */
+export function leaveByInfo(trip: Trip, now: Date): LeaveByInfo | null {
+  // Transit and pickup are anchored to a vehicle, not a self-powered door —
+  // a "leave-by / cushion" frame is meaningless (and misleading) once the
+  // bus has left. The app already warns if the departure is after arrival.
+  if (trip.transit.mode === "transit" || trip.transit.mode === "pickup") return null;
+  const doorStep = trip.timeline.find((s) => s.kind === "travel");
+  if (!doorStep) return null;
+  const doorAt = new Date(doorStep.startsAt);
+  const last = trip.timeline[trip.timeline.length - 1];
+  // Fixed travel duration from the door to the arrival anchor.
+  const travelMs = new Date(last.endsAt).getTime() - doorAt.getTime();
+  const requiredArrival = new Date(trip.arrivalTime);
+  const arriveIfLeaveNow = new Date(Math.max(now.getTime(), doorAt.getTime()) + travelMs);
+  const lateMs = arriveIfLeaveNow.getTime() - requiredArrival.getTime();
+  return {
+    doorAt: doorStep.startsAt,
+    minsUntilDoor: minutesUntil(doorStep.startsAt, now),
+    requiredArrival,
+    arriveIfLeaveNow,
+    lateIfLeaveNow: Math.max(0, Math.round(lateMs / 60_000)),
+    cushionLeftMin: Math.round(-lateMs / 60_000),
+  };
+}
+
 /**
  * Recovery move: when the plan has collapsed mid-execution, rebuild the
  * remaining timeline against the SAME anchor, optionally dropping prep
@@ -173,12 +222,12 @@ export function minutesUntil(iso: string, now: Date): number {
 export function rebuildRemaining(
   timeline: TimelineStep[],
   fromIndex: number,
-  keepTaskIds: Set<string>,
+  keepStepIds: Set<string>,
 ): { timeline: TimelineStep[]; startAt: Date } {
   const remaining = timeline.slice(fromIndex);
-  const kept = remaining.filter(
-    (s) => s.kind !== "prep" || (s.taskId !== undefined && keepTaskIds.has(s.taskId)),
-  );
+  // Keyed by step id, not taskId — freeform tasks can share a taskId, so
+  // cutting one must not cut its sibling.
+  const kept = remaining.filter((s) => s.kind !== "prep" || keepStepIds.has(s.id));
   // The anchor is immovable: walk backward from the original chain end.
   let end = new Date(remaining[remaining.length - 1].endsAt);
   const rebuilt: TimelineStep[] = [];

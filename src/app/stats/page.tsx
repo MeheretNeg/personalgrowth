@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { loadDebriefs, loadLogs, loadSettings } from "@/lib/store";
+import { useRef } from "react";
+import { exportBackup, importBackup, loadDebriefs, loadLogs, loadSettings } from "@/lib/store";
 import {
   MIN_LOGS_FOR_HISTORY,
   calibrationScore,
   errorTrend,
   meanSignedErrorPct,
   personalMedian,
+  scorableLogs,
 } from "@/lib/calibration";
 import { getPrior } from "@/lib/priors";
 import { LEVELS, levelProgress, onTimeStreak } from "@/lib/graduation";
@@ -36,12 +38,42 @@ export default function Stats() {
   const [logs, setLogs] = useState<DurationLog[]>([]);
   const [debriefs, setDebriefs] = useState<Debrief[]>([]);
   const [level, setLevel] = useState<GraduationLevel>(1);
+  const [restoreMsg, setRestoreMsg] = useState<string | null>(null);
+  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLogs(loadLogs());
     setDebriefs(loadDebriefs());
     setLevel(loadSettings().level);
   }, []);
+
+  function backup() {
+    const data = JSON.stringify(exportBackup(), null, 1);
+    const blob = new Blob([data], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "anchor-backup.json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function restore(file: File) {
+    try {
+      const res = importBackup(JSON.parse(await file.text()));
+      if (!res) {
+        setRestoreMsg("That file isn't an Anchor backup.");
+        return;
+      }
+      setLogs(loadLogs());
+      setDebriefs(loadDebriefs());
+      setRestoreMsg(`Restored — added ${res.logs} measurements and ${res.debriefs} arrivals.`);
+    } catch {
+      setRestoreMsg("Couldn't read that file.");
+    }
+  }
 
   const score = calibrationScore(logs);
   const trend = errorTrend(logs);
@@ -76,8 +108,9 @@ export default function Stats() {
           <span className="text-lg text-muted-foreground">/100</span>
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          How close your blind guesses land to measured reality (last 10 tasks).
-          This number IS the training goal — the app fades as it climbs.
+          {score === null && logs.length > 0 && scorableLogs(logs).length === 0
+            ? "No blind guesses yet — Quick plan fills times for you, so it can't score your clock. Use Train my clock on a plan (one trained trip a week is enough) and this comes alive."
+            : "How close your blind guesses land to measured reality (last 10 tasks). This number IS the training goal — the app fades as it climbs."}
         </p>
         {(() => {
           const bias = meanSignedErrorPct(logs);
@@ -258,6 +291,42 @@ export default function Stats() {
           </ul>
         </section>
       )}
+
+      <section className="surface p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+          Your record is only on this device
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Clearing your browser wipes months of measured medians. Back it up —
+          it&apos;s the one thing Anchor can&apos;t rebuild.
+        </p>
+        <input
+          ref={importRef}
+          type="file"
+          accept="application/json,.json"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) void restore(f);
+            e.target.value = "";
+          }}
+        />
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={backup}
+            className="surface-soft flex-1 rounded-full px-3 py-2 text-sm font-semibold"
+          >
+            Back up my record
+          </button>
+          <button
+            onClick={() => importRef.current?.click()}
+            className="surface-soft flex-1 rounded-full px-3 py-2 text-sm font-semibold"
+          >
+            Restore from backup
+          </button>
+        </div>
+        {restoreMsg && <p className="mt-2 text-sm text-primary">{restoreMsg}</p>}
+      </section>
     </main>
   );
 }

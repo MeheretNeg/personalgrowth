@@ -20,17 +20,27 @@ function median(values: number[]): number {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
+/** True elapsed minutes — seconds precision (newer logs) over rounded. */
+function actualMin(l: DurationLog): number {
+  return l.actualSeconds != null ? l.actualSeconds / 60 : l.actualMinutes;
+}
+
 /** Median of the last WINDOW logs for a task, or null if not enough data. */
 export function personalMedian(logs: DurationLog[], taskId: string): number | null {
   const mine = logsFor(logs, taskId);
   if (mine.length < MIN_LOGS_FOR_HISTORY) return null;
-  return Math.round(median(mine.slice(-WINDOW).map((l) => l.actualMinutes)));
+  return Math.round(median(mine.slice(-WINDOW).map(actualMin)));
 }
 
 /** Signed % error of a guess vs reality. Positive = underestimated. */
 export function estimationErrorPct(guessMinutes: number, actualMinutes: number): number {
   if (guessMinutes <= 0) return 100;
   return Math.round(((actualMinutes - guessMinutes) / guessMinutes) * 100);
+}
+
+/** Log-level error using the most precise elapsed value available. */
+function logErrorPct(l: DurationLog): number {
+  return estimationErrorPct(l.guessMinutes, actualMin(l));
 }
 
 /**
@@ -45,7 +55,7 @@ export function estimationErrorPct(guessMinutes: number, actualMinutes: number):
  */
 export function scorableLogs(logs: DurationLog[]): DurationLog[] {
   return logs.filter(
-    (l) => l.guessMinutes > 0 && Math.max(l.guessMinutes, l.actualMinutes) >= 5,
+    (l) => l.guessMinutes > 0 && Math.max(l.guessMinutes, actualMin(l)) >= 5,
   );
 }
 
@@ -54,8 +64,7 @@ export function calibrationScore(logs: DurationLog[], window = 10): number | nul
   if (scored.length === 0) return null;
   const recent = scored.slice(-window);
   const avgAbsError =
-    recent.reduce((sum, l) => sum + Math.abs(estimationErrorPct(l.guessMinutes, l.actualMinutes)), 0) /
-    recent.length;
+    recent.reduce((sum, l) => sum + Math.abs(logErrorPct(l)), 0) / recent.length;
   return Math.max(0, Math.round(100 - avgAbsError));
 }
 
@@ -68,10 +77,7 @@ export function meanSignedErrorPct(logs: DurationLog[], window = 10): number | n
   const scored = scorableLogs(logs);
   if (scored.length < 3) return null;
   const recent = scored.slice(-window);
-  return Math.round(
-    recent.reduce((s, l) => s + estimationErrorPct(l.guessMinutes, l.actualMinutes), 0) /
-      recent.length,
-  );
+  return Math.round(recent.reduce((s, l) => s + logErrorPct(l), 0) / recent.length);
 }
 
 /**
@@ -85,7 +91,7 @@ export function planningMinutes(logs: DurationLog[], taskId: string): number | n
   if (mine.length < MIN_LOGS_FOR_HISTORY) return null;
   const recent = mine
     .slice(-8)
-    .map((l) => l.actualMinutes)
+    .map(actualMin)
     .sort((a, b) => a - b);
   const idx = Math.min(recent.length - 1, Math.ceil(0.75 * recent.length) - 1);
   return Math.round(recent[Math.max(0, idx)]);
@@ -96,7 +102,7 @@ export function errorTrend(logs: DurationLog[], window = 14): { at: string; erro
   return scorableLogs(logs)
     .slice(-window)
     .map((l) => ({
-    at: l.at,
-    errorPct: estimationErrorPct(l.guessMinutes, l.actualMinutes),
-  }));
+      at: l.at,
+      errorPct: logErrorPct(l),
+    }));
 }

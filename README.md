@@ -66,6 +66,17 @@ door-critical, with vibration; they fade with level too. A service worker
 Android PWAs), reopens the app on notification tap, and serves an offline
 shell.
 
+Leave-by alerts: the moment that decides on-time. Once you're within 15
+minutes of needing to walk out, Execute shows a big consequence banner
+("Out the door by 10:24 · in 8 min — leave on time and you arrive 10 min
+early") and fires escalating conversational push cues at 10/5/0 minutes
+and after ("leave now or you'll be ~6 min late — every minute adds one").
+
+Calendar (backend-free .ics): import an .ics from Google/Apple/Outlook on
+the plan screen and tap an upcoming event to prefill the trip; after
+locking, download a leave-by event so your phone calendar becomes a
+departure backup alarm.
+
 Anchor Coach (conversational AI): set `ANTHROPIC_API_KEY` (see
 `.env.example`) and a Claude-powered coach switches on — chat/voice
 planning ("airport by 11:45, driving, need to shower and pack" → a locked

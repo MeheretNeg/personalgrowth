@@ -64,7 +64,9 @@ export default function DebriefPage() {
       const measured = Math.round(
         (new Date(t.arrivedAt).getTime() - new Date(t.arrivalTime).getTime()) / 60_000,
       );
-      if (Math.abs(measured) <= 120) setDelta(measured);
+      // Clamp the stepper range, but NEVER round a very-late arrival back to
+      // "on time" — a 3-hours-late day must not be recorded as a win.
+      setDelta(Math.max(-120, Math.min(120, measured)));
     }
   }, [router]);
 
@@ -153,15 +155,28 @@ export default function DebriefPage() {
           </section>
         )}
 
-        <Button
-          size="lg"
-          className="h-14 rounded-2xl font-bold"
-          onClick={() => router.push("/stats")}
+        {!onTime ? (
+          <Button
+            size="lg"
+            className="h-14 rounded-2xl bg-primary font-bold text-primary-foreground hover:bg-primary/90"
+            onClick={() => router.push("/plan")}
+          >
+            Plan the next arrival — restart the count
+          </Button>
+        ) : (
+          <Button
+            size="lg"
+            className="h-14 rounded-2xl font-bold"
+            onClick={() => router.push("/stats")}
+          >
+            See what I learned
+          </Button>
+        )}
+        <button
+          onClick={() => router.push(onTime ? "/" : "/stats")}
+          className="text-sm text-muted-foreground underline"
         >
-          See what I learned
-        </Button>
-        <button onClick={() => router.push("/")} className="text-sm text-muted-foreground underline">
-          Home
+          {onTime ? "Home" : "See what I learned"}
         </button>
       </main>
     );

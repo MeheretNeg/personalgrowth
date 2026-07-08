@@ -18,17 +18,30 @@ const DEFAULT_SETTINGS: Settings = { earlyBufferMinutes: 10, level: 1 };
 
 function read<T>(key: string, fallback: T): T {
   if (typeof window === "undefined") return fallback;
+  const raw = window.localStorage.getItem(key);
+  if (raw === null) return fallback;
   try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
+    return JSON.parse(raw) as T;
   } catch {
+    // Corrupt JSON: quarantine the raw string instead of destroying it on
+    // the next write, so the months-of-training record can be recovered.
+    try {
+      window.localStorage.setItem(`${key}:corrupt-${new Date().getTime()}`, raw);
+    } catch {
+      /* quota — nothing more we can do */
+    }
     return fallback;
   }
 }
 
 function write(key: string, value: unknown): void {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(key, JSON.stringify(value));
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Quota exceeded or storage disabled — surface nothing here; callers of
+    // append* still return the in-memory value so the current session works.
+  }
 }
 
 export const loadTrip = (): Trip | null => read<Trip | null>(KEYS.trip, null);
@@ -51,8 +64,73 @@ export const appendDebrief = (d: Debrief): Debrief[] => {
   return all;
 };
 
-export const loadSettings = (): Settings => read<Settings>(KEYS.settings, DEFAULT_SETTINGS);
+export const loadSettings = (): Settings => {
+  // Merge over defaults so a settings object written before a field existed
+  // (e.g. an old user with no planMode) never reads back undefined.
+  const stored = read<Partial<Settings>>(KEYS.settings, {});
+  return { ...DEFAULT_SETTINGS, ...stored };
+};
 export const saveSettings = (s: Settings): void => write(KEYS.settings, s);
+
+/** Ask the browser to keep our storage from being auto-evicted. Best-effort. */
+export function requestPersistentStorage(): void {
+  if (typeof navigator !== "undefined" && navigator.storage?.persist) {
+    void navigator.storage.persist().catch(() => {});
+  }
+}
+
+/** The whole irreplaceable training record, for backup/restore. */
+export interface AnchorBackup {
+  version: 1;
+  exportedAt: string;
+  logs: DurationLog[];
+  debriefs: Debrief[];
+  settings: Settings;
+  lastTasks: string[];
+}
+
+export function exportBackup(): AnchorBackup {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    logs: loadLogs(),
+    debriefs: loadDebriefs(),
+    settings: loadSettings(),
+    lastTasks: loadLastTaskIds(),
+  };
+}
+
+/** Merge an imported backup into the current record. Dedupes by (at) stamp. */
+export function importBackup(raw: unknown): { logs: number; debriefs: number } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const b = raw as Partial<AnchorBackup>;
+  if (!Array.isArray(b.logs) || !Array.isArray(b.debriefs)) return null;
+  const curLogs = loadLogs();
+  const logKeys = new Set(curLogs.map((l) => `${l.taskId}@${l.at}`));
+  let addedLogs = 0;
+  for (const l of b.logs) {
+    if (l && typeof l.at === "string" && !logKeys.has(`${l.taskId}@${l.at}`)) {
+      curLogs.push(l);
+      logKeys.add(`${l.taskId}@${l.at}`);
+      addedLogs++;
+    }
+  }
+  const curDebriefs = loadDebriefs();
+  const dKeys = new Set(curDebriefs.map((d) => d.at));
+  let addedDebriefs = 0;
+  for (const d of b.debriefs) {
+    if (d && typeof d.at === "string" && !dKeys.has(d.at)) {
+      curDebriefs.push(d);
+      dKeys.add(d.at);
+      addedDebriefs++;
+    }
+  }
+  curLogs.sort((a, z) => a.at.localeCompare(z.at));
+  curDebriefs.sort((a, z) => a.at.localeCompare(z.at));
+  write(KEYS.logs, curLogs);
+  write(KEYS.debriefs, curDebriefs);
+  return { logs: addedLogs, debriefs: addedDebriefs };
+}
 
 /** Task ids from the last locked plan — powers the one-tap "My usual". */
 export const loadLastTaskIds = (): string[] => read<string[]>(KEYS.lastTasks, []);

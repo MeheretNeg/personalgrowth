@@ -60,8 +60,9 @@ const PLAN_TOOL: Anthropic.Tool = {
       },
       tasks: {
         type: "array",
+        maxItems: 12,
         description:
-          "Prep tasks before leaving, in order. Use taskIds from app_state's task list where they match; freeform labels otherwise. Empty array = they're leaving immediately, no prep.",
+          "Prep tasks before leaving, in order (max 12). Use taskIds from app_state's task list where they match; freeform labels otherwise. Empty array = they're leaving immediately, no prep.",
         items: {
           type: "object",
           properties: {
@@ -72,12 +73,55 @@ const PLAN_TOOL: Anthropic.Tool = {
             },
           },
           required: ["label"],
+          additionalProperties: false,
         },
       },
     },
     required: ["destination", "arrivalTime", "mode", "tasks"],
+    additionalProperties: false,
   },
+  strict: true,
 };
+
+const MODES = ["driving", "walking", "transit", "pickup", "pickingUp"];
+
+/**
+ * Trust nothing from the model layer. A malformed propose_plan payload
+ * must never reach the client as a "plan" — the card would crash on it
+ * and take the whole conversation down. Returns a clean CoachPlan or null.
+ */
+function normalizePlan(input: unknown): Record<string, unknown> | null {
+  if (!input || typeof input !== "object") return null;
+  const p = input as Record<string, unknown>;
+  if (typeof p.destination !== "string" || !p.destination.trim()) return null;
+  if (typeof p.arrivalTime !== "string" || !/^\d{1,2}:\d{2}$/.test(p.arrivalTime)) return null;
+  if (typeof p.mode !== "string" || !MODES.includes(p.mode)) return null;
+  const rawTasks = Array.isArray(p.tasks) ? p.tasks : [];
+  const tasks = rawTasks
+    .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+    .map((t) => ({
+      label: typeof t.label === "string" ? t.label.slice(0, 60) : "",
+      minutes:
+        typeof t.minutes === "number" && isFinite(t.minutes) && t.minutes > 0
+          ? Math.min(600, Math.round(t.minutes))
+          : undefined,
+    }))
+    .filter((t) => t.label.trim())
+    .slice(0, 12);
+  const num = (v: unknown) =>
+    typeof v === "number" && isFinite(v) && v > 0 ? Math.min(1440, Math.round(v)) : undefined;
+  const hhmm = (v: unknown) =>
+    typeof v === "string" && /^\d{1,2}:\d{2}$/.test(v) ? v : undefined;
+  return {
+    destination: p.destination.trim().slice(0, 80),
+    arrivalTime: p.arrivalTime,
+    mode: p.mode,
+    travelMinutes: num(p.travelMinutes),
+    transitDeparture: hhmm(p.transitDeparture),
+    pickupTime: hhmm(p.pickupTime),
+    tasks,
+  };
+}
 
 export async function GET() {
   return NextResponse.json({ enabled: enabled() });
@@ -88,9 +132,40 @@ interface ChatTurn {
   content: string;
 }
 
+// Naive per-IP token bucket — the endpoint calls a paid model, so a public
+// deployment needs a floor against runaway/abusive use. Process-memory only
+// (best-effort on serverless); pair with platform rate limits for real DoS.
+const BUCKET = new Map<string, { tokens: number; ts: number }>();
+const RATE = { max: 12, refillPerSec: 12 / 60 };
+function rateLimited(ip: string): boolean {
+  const now = Date.now();
+  const b = BUCKET.get(ip) ?? { tokens: RATE.max, ts: now };
+  b.tokens = Math.min(RATE.max, b.tokens + ((now - b.ts) / 1000) * RATE.refillPerSec);
+  b.ts = now;
+  if (b.tokens < 1) {
+    BUCKET.set(ip, b);
+    return true;
+  }
+  b.tokens -= 1;
+  BUCKET.set(ip, b);
+  return false;
+}
+
 export async function POST(req: Request) {
   if (!enabled()) {
     return NextResponse.json({ enabled: false }, { status: 503 });
+  }
+  // Same-origin only: this key-billed endpoint must not be a public proxy.
+  const site = req.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+  const ip = (req.headers.get("x-forwarded-for") ?? "local").split(",")[0].trim();
+  if (rateLimited(ip)) {
+    return NextResponse.json(
+      { error: "Slow down a moment — too many messages at once." },
+      { status: 429 },
+    );
   }
   let body: { messages?: ChatTurn[] };
   try {
@@ -99,15 +174,19 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "invalid JSON" }, { status: 400 });
   }
   const messages = body.messages;
+  const totalChars = Array.isArray(messages)
+    ? messages.reduce((n, m) => n + (typeof m?.content === "string" ? m.content.length : 0), 0)
+    : 0;
   if (
     !Array.isArray(messages) ||
     messages.length === 0 ||
     messages.length > 40 ||
+    totalChars > 60_000 ||
     messages.some(
       (m) =>
         (m.role !== "user" && m.role !== "assistant") ||
         typeof m.content !== "string" ||
-        m.content.length > 20_000,
+        m.content.length > 30_000,
     ) ||
     messages[0].role !== "user"
   ) {
@@ -118,8 +197,9 @@ export async function POST(req: Request) {
   try {
     const response = await client.messages.create({
       model: "claude-opus-4-8",
-      max_tokens: 2048,
+      max_tokens: 8000,
       thinking: { type: "adaptive" },
+      output_config: { effort: "low" },
       system: [{ type: "text", text: SYSTEM, cache_control: { type: "ephemeral" } }],
       tools: [PLAN_TOOL],
       messages,
@@ -140,7 +220,14 @@ export async function POST(req: Request) {
     const planBlock = response.content.find(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use" && b.name === "propose_plan",
     );
-    return NextResponse.json({ reply, plan: planBlock?.input ?? null });
+    const plan = planBlock ? normalizePlan(planBlock.input) : null;
+    if (response.stop_reason === "max_tokens" && !reply && !plan) {
+      return NextResponse.json({
+        reply: "I lost my train of thought there — ask me again?",
+        plan: null,
+      });
+    }
+    return NextResponse.json({ reply, plan });
   } catch (err) {
     if (err instanceof Anthropic.RateLimitError) {
       return NextResponse.json(

@@ -145,6 +145,22 @@ The full loop to drive (all state in localStorage, no backend):
 - **Exit checklist** is editable (✎ chip on the final staging step),
   stored in settings.exitChecklist.
 
+## Leave-by consequence alerts + calendar
+
+- **Leave-by**: `leaveByInfo(trip, now)` (engine) anchors on the first
+  `travel`-kind step (null for pickup/pure-staging). Execute shows a
+  prominent banner once `minsUntilDoor <= 15`: door clock time, minutes
+  until, and the arrival consequence ("arrive N min early" / "you'd be N
+  min late — go"). `leaveByCue` (notify) fires conversational push cues at
+  10/5/0 min before the door and escalating consequence copy after. Copy
+  is varied deterministically by key hash (stable dedup, human tone),
+  generated locally so it works offline.
+- **Calendar**: `src/lib/calendar.ts`. Import — plan step 0 "Import from my
+  calendar" takes an .ics (`input[type=file]`, `setInputFiles`), parseIcs
+  lists upcoming VEVENTs, tapping one prefills destination/time/date.
+  Export — lock page "Add leave-by time to my calendar" downloads an .ics
+  whose event + alarm sit at the door time (null for pickup/transit).
+
 ## Anchor Coach (conversational AI)
 
 Gated on ANTHROPIC_API_KEY: `GET /api/coach` → {enabled}; POST 503s
