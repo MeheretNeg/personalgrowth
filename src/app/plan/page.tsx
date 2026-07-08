@@ -8,10 +8,14 @@ import { VoiceInput } from "@/components/voice-input";
 import { TASK_PRIORS, getPrior } from "@/lib/priors";
 import { buildTimeline, formatTime, timeOnSameDay } from "@/lib/engine";
 import {
+  clearPlanDraft,
   loadLastTaskIds,
   loadLogs,
+  loadPlanDraft,
   loadSettings,
   loadTrip,
+  PlanDraft,
+  savePlanDraft,
   saveLastTaskIds,
   saveSettings,
   saveTrip,
@@ -73,8 +77,116 @@ export default function Plan() {
   const [lastTaskIds] = useState<string[]>(() =>
     typeof window === "undefined" ? [] : loadLastTaskIds().filter((id) => getPrior(id)),
   );
+  // A resumable half-finished plan found on mount. Never auto-applied — the
+  // user chooses via a dismissible banner.
+  const [resumable, setResumable] = useState<PlanDraft | null>(null);
+  // The task whose card should scroll into view + focus after a chip tap, so
+  // the minutes input isn't stranded far below the chips.
+  const [focusTaskId, setFocusTaskId] = useState<string | null>(null);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const hydrated = useRef(false);
 
   useEffect(() => setNow(new Date()), [step]);
+
+  // Offer to resume an unfinished plan (but only when nothing's running and
+  // the draft actually holds content). Loaded once, on mount.
+  useEffect(() => {
+    const active = loadTrip();
+    if (active && (active.phase === "locked" || active.phase === "executing")) return;
+    const draft = loadPlanDraft();
+    if (draft && (draft.destination.trim() || (draft.selections?.length ?? 0) > 0)) {
+      setResumable(draft);
+    }
+  }, []);
+
+  function resumeDraft(d: PlanDraft) {
+    setDestination(d.destination);
+    setArrivalTime(d.arrivalTime);
+    setArrivalDateStr(d.arrivalDateStr);
+    setNoPrep(d.noPrep);
+    setMode((d.mode as TransitMode | null) ?? null);
+    setDriveGuess(d.driveGuess);
+    setDriveSuggested(d.driveSuggested);
+    setWalkGuess(d.walkGuess);
+    setWalkSuggested(d.walkSuggested);
+    setTransitDeparture(d.transitDeparture);
+    setWalkToStop(d.walkToStop);
+    setTransitRideGuess(d.transitRideGuess);
+    setPickupTime(d.pickupTime);
+    setPickupDriveGuess(d.pickupDriveGuess);
+    setPlanMode(d.planMode);
+    setSelections((d.selections as Selection[]) ?? []);
+    setStep(d.step);
+    setResumable(null);
+  }
+
+  function discardDraft() {
+    clearPlanDraft();
+    setResumable(null);
+  }
+
+  // Auto-scroll + focus the newest task card so the guess input meets the
+  // user right where they tapped.
+  useEffect(() => {
+    if (!focusTaskId) return;
+    const card = cardRefs.current[focusTaskId];
+    card?.scrollIntoView({ behavior: "smooth", block: "center" });
+    card?.querySelector("input")?.focus({ preventScroll: true });
+    setFocusTaskId(null);
+  }, [focusTaskId]);
+
+  // Persist the draft on every change — but skip the mount pass so we never
+  // stomp the draft the resume banner is still offering.
+  useEffect(() => {
+    if (!hydrated.current) {
+      hydrated.current = true;
+      return;
+    }
+    const hasContent =
+      destination.trim() !== "" || selections.length > 0 || mode !== null || noPrep;
+    if (!hasContent) {
+      clearPlanDraft();
+      return;
+    }
+    savePlanDraft({
+      savedAt: new Date().toISOString(),
+      step,
+      destination,
+      arrivalTime,
+      arrivalDateStr,
+      noPrep,
+      mode,
+      driveGuess,
+      driveSuggested,
+      walkGuess,
+      walkSuggested,
+      transitDeparture,
+      walkToStop,
+      transitRideGuess,
+      pickupTime,
+      pickupDriveGuess,
+      planMode,
+      selections,
+    });
+  }, [
+    step,
+    destination,
+    arrivalTime,
+    arrivalDateStr,
+    noPrep,
+    mode,
+    driveGuess,
+    driveSuggested,
+    walkGuess,
+    walkSuggested,
+    transitDeparture,
+    walkToStop,
+    transitRideGuess,
+    pickupTime,
+    pickupDriveGuess,
+    planMode,
+    selections,
+  ]);
 
   /**
    * Arrival as a Date. With an explicit date picked, use it literally
@@ -191,6 +303,9 @@ export default function Plan() {
           ...(planMode === "quick" ? standardFor(taskId) : {}),
         },
       ]);
+      // Train mode still needs a guess — bring its card to the user rather
+      // than leaving the input stranded below the chip grid.
+      if (planMode === "train") setFocusTaskId(taskId);
     }
   }
 
@@ -328,6 +443,7 @@ export default function Plan() {
       lockedAt: new Date().toISOString(),
     };
     saveTrip(trip);
+    clearPlanDraft();
     router.push("/lock");
   }
 
@@ -383,6 +499,37 @@ export default function Plan() {
           {step === 3 && "Your timeline, backwards"}
         </h1>
       </header>
+
+      {resumable && step === 0 && (
+        <div className="surface-active flex items-center justify-between gap-3 p-3.5">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-primary">Pick up where you left off?</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {resumable.destination.trim()
+                ? `Unfinished plan to ${resumable.destination.trim()}`
+                : "An unfinished plan is saved"}
+              {resumable.arrivalTime ? ` · arrive ${resumable.arrivalTime}` : ""}
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <Button
+              size="sm"
+              className="rounded-full font-semibold"
+              onClick={() => resumeDraft(resumable)}
+            >
+              Resume
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              className="rounded-full"
+              onClick={discardDraft}
+            >
+              Discard
+            </Button>
+          </div>
+        </div>
+      )}
 
       {step === 0 && (
         <section className="flex flex-col gap-4">
@@ -773,6 +920,130 @@ export default function Plan() {
               );
             })}
           </div>
+
+          {/* Cards sit directly under the chips they came from — tap a chip,
+              its minutes card is right there, not stranded past a scroll. */}
+          {selections.map((s) => {
+            const prior = getPrior(s.taskId)!;
+            const med = personalMedian(logs, s.taskId);
+            const planningMed = planningMinutes(logs, s.taskId) ?? med;
+            return (
+              <div
+                key={s.taskId}
+                ref={(el) => {
+                  cardRefs.current[s.taskId] = el;
+                }}
+                className="surface p-4"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-semibold">{s.label}</p>
+                  <button
+                    onClick={() => toggleTask(s.taskId)}
+                    className="text-xs font-medium text-muted-foreground underline"
+                  >
+                    Remove
+                  </button>
+                </div>
+                {s.planned === undefined ? (
+                  <>
+                    <label className="mt-2 flex flex-col gap-1.5 text-sm font-medium">
+                      Gut guess — minutes?
+                      <Input
+                        type="number"
+                        inputMode="numeric"
+                        min={1}
+                        value={s.guess}
+                        onChange={(e) =>
+                          setSelections(
+                            selections.map((x) =>
+                              x.taskId === s.taskId ? { ...x, guess: e.target.value } : x,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                    {!s.revealed ? (
+                      <Button
+                        className="mt-3 w-full rounded-full font-semibold"
+                        disabled={!(Number(s.guess) > 0)}
+                        onClick={() => lockGuess(s.taskId)}
+                      >
+                        {level >= 3 ? "Lock it in" : "Lock my guess & compare"}
+                      </Button>
+                    ) : (
+                      <div className="mt-3 flex flex-col gap-2.5 text-sm">
+                        <div className="flex items-center justify-between rounded-xl bg-accent/10 px-3 py-2">
+                          <span className="font-medium">You guessed</span>
+                          <span className="text-lg font-bold tabular-nums text-accent">
+                            {s.guess}m
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Pick the number to plan with:
+                        </p>
+                        <div className="flex flex-col gap-2">
+                          <button
+                            onClick={() => choose(s.taskId, Number(s.guess), "guess")}
+                            className="surface-soft flex items-center justify-between px-3.5 py-3 text-left transition-colors active:scale-[0.99]"
+                          >
+                            <span className="text-sm font-semibold">Keep {s.guess}m</span>
+                            <span className="text-xs text-muted-foreground">trust my gut</span>
+                          </button>
+                          <button
+                            onClick={() => choose(s.taskId, prior.p75, "prior")}
+                            className="surface-soft flex items-center justify-between px-3.5 py-3 text-left transition-colors active:scale-[0.99]"
+                          >
+                            <span className="text-sm font-semibold">Slow day {prior.p75}m</span>
+                            <span className="text-xs text-muted-foreground">
+                              typical: {prior.p50}m
+                            </span>
+                          </button>
+                          {med !== null && (
+                            <button
+                              onClick={() => choose(s.taskId, planningMed!, "history")}
+                              className="surface-active flex items-center justify-between px-3.5 py-3 text-left transition-colors active:scale-[0.99]"
+                            >
+                              <span className="text-sm font-semibold text-primary">
+                                Trust my record: {planningMed}m
+                              </span>
+                              <span className="text-xs text-muted-foreground">
+                                measured: {med}m
+                              </span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      Planned: <b className="text-foreground tabular-nums">{s.planned} min</b>{" "}
+                      ({s.source === "guess" ? "your guess" : s.source === "prior" ? "typical" : "your history"})
+                      {s.autoAccepted && (
+                        <span className="text-primary"> · close to your record ✓</span>
+                      )}
+                    </p>
+                    <button
+                      onClick={() =>
+                        setSelections(
+                          selections.map((x) =>
+                            x.taskId === s.taskId
+                              ? { ...x, planned: undefined, revealed: false, source: undefined, autoAccepted: false }
+                              : x,
+                          ),
+                        )
+                      }
+                      className="shrink-0 text-xs font-medium text-accent underline"
+                    >
+                      Redo
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
           {unplannedCount > 0 && (
             <p className="text-xs font-semibold text-accent">
               {unplannedCount} selected {unplannedCount === 1 ? "task still needs" : "tasks still need"} a
@@ -807,102 +1078,131 @@ export default function Plan() {
               </Button>
             </div>
           )}
-          {selections.map((s) => {
-            const prior = getPrior(s.taskId)!;
-            const med = personalMedian(logs, s.taskId);
-            return (
-              <div key={s.taskId} className="surface p-4">
-                <p className="font-semibold">{s.label}</p>
-                {s.planned === undefined ? (
-                  <>
-                    <label className="mt-2 flex flex-col gap-1.5 text-sm font-medium">
-                      Gut guess — minutes?
-                      <Input
-                        type="number"
-                        inputMode="numeric"
-                        min={1}
-                        value={s.guess}
-                        onChange={(e) =>
-                          setSelections(
-                            selections.map((x) =>
-                              x.taskId === s.taskId ? { ...x, guess: e.target.value } : x,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                    {!s.revealed ? (
-                      <Button
-                        className="mt-3 w-full rounded-full font-semibold"
-                        disabled={!(Number(s.guess) > 0)}
-                        onClick={() => lockGuess(s.taskId)}
-                      >
-                        {level >= 3 ? "Lock it in" : "Lock my guess & compare"}
-                      </Button>
-                    ) : (
-                      <div className="mt-3 flex flex-col gap-2 text-sm">
-                        <p>
-                          You guessed <b>{s.guess} min</b>. Typical person:{" "}
-                          <b className="text-accent">{prior.p50} min</b> (a slow day:{" "}
-                          {prior.p75}).
-                          {med !== null && (
-                            <>
-                              {" "}
-                              <b className="text-primary">You, measured: {med} min.</b>
-                            </>
-                          )}
-                        </p>
-                        <div className="grid grid-cols-2 gap-2">
-                          <Button variant="secondary" size="sm" className="rounded-full" onClick={() => choose(s.taskId, Number(s.guess), "guess")}>
-                            Keep {s.guess}m
-                          </Button>
-                          <Button variant="secondary" size="sm" className="rounded-full" onClick={() => choose(s.taskId, prior.p75, "prior")}>
-                            Slow day {prior.p75}m
-                          </Button>
-                          {med !== null && (
-                            <Button
-                              size="sm"
-                              className="col-span-2 rounded-full font-semibold"
-                              onClick={() =>
-                                choose(s.taskId, planningMinutes(logs, s.taskId) ?? med, "history")
-                              }
-                            >
-                              Trust my record: {planningMinutes(logs, s.taskId) ?? med}m
-                            </Button>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Planned: <b className="text-foreground">{s.planned} min</b>{" "}
-                    ({s.source === "guess" ? "your guess" : s.source === "prior" ? "typical" : "your history"})
-                    {s.autoAccepted && (
-                      <span className="text-primary"> · close to your record ✓</span>
-                    )}
-                  </p>
-                )}
-              </div>
-            );
-          })}
         </section>
       )}
 
-      {step === 3 && timeline && now && (
+      {step === 3 && timeline && now && (() => {
+        // Everything the dashboard needs, derived once from the built
+        // timeline so the headline, the section cards and the spelled-out
+        // math can never disagree with each other (or with the leave-by
+        // banner on the execute screen — both now anchor on the first
+        // TRAVEL step, the real walk-out).
+        const buffer = loadSettings().earlyBufferMinutes;
+        const prepMin = timeline.steps
+          .filter((s) => s.kind === "prep")
+          .reduce((a, s) => a + s.plannedMinutes, 0);
+        const doorBufferMin = timeline.steps
+          .filter((s) => s.kind === "staging")
+          .reduce((a, s) => a + s.plannedMinutes, 0);
+        const travelMin = timeline.steps
+          .filter((s) => s.kind === "travel")
+          .reduce((a, s) => a + s.plannedMinutes, 0);
+        const stagingStep = timeline.steps.find((s) => s.kind === "staging");
+        const departStep = timeline.steps.find((s) => s.kind === "travel") ?? stagingStep;
+        const departAt = departStep ? new Date(departStep.startsAt) : timeline.leaveDoorAt;
+        const totalSpan = Math.round(
+          (timeline.targetArrival.getTime() - timeline.startAt.getTime()) / 60_000,
+        );
+        const departVerb =
+          mode === "pickup"
+            ? "be ready by"
+            : mode === "transit"
+              ? "leave for the stop by"
+              : "leave home by";
+        const whenLabel = dayLabel ?? "today";
+        return (
         <section className="flex flex-col gap-3">
-          <div className="surface p-4 text-sm">
-            <p>
-              Target: <b className="text-primary">{formatTime(timeline.targetArrival)}</b>{" "}
-              at {destination}
-              {dayLabel && <b className="text-accent"> {dayLabel}</b>} (
-              {loadSettings().earlyBufferMinutes} min early).
+          {/* The headline the user asked for: arrive at X → leave at X. */}
+          <div className="surface-active p-5">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              {destination} · {whenLabel}
             </p>
-            <p className="mt-1">
-              Out the door <b>{formatTime(timeline.leaveDoorAt)}</b> · start
-              getting ready <b className="text-primary">{formatTime(timeline.startAt)}</b>.
+            <p className="mt-2 text-xl font-bold leading-snug">
+              Arrive by{" "}
+              <span className="text-primary">{formatTime(timeline.targetArrival)}</span>
+              <span className="text-muted-foreground"> · </span>
+              {departVerb}{" "}
+              <span className="text-primary">{formatTime(departAt)}</span>
+            </p>
+            <p className="mt-1.5 text-sm text-muted-foreground">
+              Start getting ready at{" "}
+              <b className="text-foreground tabular-nums">{formatTime(timeline.startAt)}</b> —
+              that&apos;s {totalSpan} min from your first move to walking in.
             </p>
           </div>
+
+          {/* Sectioned summary — each editable in place. */}
+          <div className="flex flex-col gap-2">
+            <div className="surface-soft flex items-start justify-between gap-3 p-3.5">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                  Where & when
+                </p>
+                <p className="mt-0.5 text-sm font-medium">
+                  {destination}, {whenLabel}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Required {formatTime(arrivalDate!)} · targeting{" "}
+                  {formatTime(timeline.targetArrival)} ({buffer} min early)
+                </p>
+              </div>
+              <button
+                onClick={() => setStep(0)}
+                className="shrink-0 text-xs font-semibold text-accent underline"
+              >
+                Edit
+              </button>
+            </div>
+
+            <div className="surface-soft flex items-start justify-between gap-3 p-3.5">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                  Getting there
+                </p>
+                <p className="mt-0.5 text-sm font-medium">
+                  {MODES.find((m) => m.id === mode)?.label ?? mode}
+                  {travelMin > 0 && (
+                    <span className="text-muted-foreground"> · {travelMin} min door-to-door</span>
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {departVerb.charAt(0).toUpperCase() + departVerb.slice(1)}{" "}
+                  {formatTime(departAt)}
+                </p>
+              </div>
+              <button
+                onClick={() => setStep(1)}
+                className="shrink-0 text-xs font-semibold text-accent underline"
+              >
+                Edit
+              </button>
+            </div>
+
+            <div className="surface-soft flex items-start justify-between gap-3 p-3.5">
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                  Before you go
+                </p>
+                {noPrep || prepMin === 0 ? (
+                  <p className="mt-0.5 text-sm font-medium">
+                    Straight out the door — nothing to prep
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-sm font-medium">
+                    {timeline.steps.filter((s) => s.kind === "prep").length} tasks ·{" "}
+                    {prepMin} min of getting ready
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => setStep(2)}
+                className="shrink-0 text-xs font-semibold text-accent underline"
+              >
+                Edit
+              </button>
+            </div>
+          </div>
+
           {(mode === "transit" || mode === "pickup") &&
             new Date(timeline.steps[timeline.steps.length - 1].endsAt).getTime() >
               timeline.targetArrival.getTime() && (
@@ -920,7 +1220,6 @@ export default function Plan() {
               {(() => {
                 // The consequence, made concrete: start now, take every block
                 // as planned, and THIS is when you walk in.
-                const buffer = loadSettings().earlyBufferMinutes;
                 const projected = new Date(
                   timeline.targetArrival.getTime() + behindMin * 60_000,
                 );
@@ -944,18 +1243,72 @@ export default function Plan() {
               </p>
             </div>
           )}
-          <ol className="flex flex-col gap-2">
-            {timeline.steps.map((s) => (
-              <li key={s.id} className="surface-soft flex items-center justify-between p-3 text-sm">
-                <span className="font-medium">{s.label}</span>
-                <span className="text-muted-foreground tabular-nums">
-                  {formatTime(s.startsAt)} · {s.plannedMinutes}m
+
+          {/* The math, spelled out — so "why 6:16?" is never a mystery. */}
+          <div className="surface p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+              The math, spelled out
+            </p>
+            <div className="mt-2 flex flex-col gap-1.5 text-sm">
+              <div className="flex items-center justify-between">
+                <span>Start getting ready</span>
+                <b className="tabular-nums">{formatTime(timeline.startAt)}</b>
+              </div>
+              {prepMin > 0 && !noPrep && (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>+ getting ready</span>
+                  <span className="tabular-nums">{prepMin} min</span>
+                </div>
+              )}
+              {doorBufferMin > 0 && (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>+ staged at the door</span>
+                  <span className="tabular-nums">{doorBufferMin} min</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="font-medium">
+                  {mode === "pickup" ? "Ready at the door" : "Out the door"}
                 </span>
-              </li>
-            ))}
-          </ol>
+                <b className="tabular-nums text-primary">{formatTime(departAt)}</b>
+              </div>
+              {travelMin > 0 && (
+                <div className="flex items-center justify-between text-muted-foreground">
+                  <span>+ travel</span>
+                  <span className="tabular-nums">{travelMin} min</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between border-t border-border pt-1.5">
+                <span className="font-medium">Walk in</span>
+                <b className="tabular-nums text-primary">{formatTime(timeline.targetArrival)}</b>
+              </div>
+            </div>
+          </div>
+
+          <details open className="surface-soft p-3.5">
+            <summary className="cursor-pointer text-sm font-semibold">
+              Every step, in order
+            </summary>
+            <ol className="mt-3 flex flex-col gap-2">
+              {timeline.steps.map((s) => (
+                <li key={s.id} className="flex items-center justify-between text-sm">
+                  <span className="font-medium">{s.label}</span>
+                  <span className="text-muted-foreground tabular-nums">
+                    {formatTime(s.startsAt)} · {s.plannedMinutes}m
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </details>
+
+          <p className="text-center text-xs text-muted-foreground">
+            {behindMin > 0
+              ? "The plan's honest — now it's a race. Lock it and move."
+              : "That's the whole plan, start to finish. Lock it and it's off your mind."}
+          </p>
         </section>
-      )}
+        );
+      })()}
 
       <div className="mt-auto flex gap-2 pt-4">
         {step > 0 && (
