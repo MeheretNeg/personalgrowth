@@ -24,7 +24,8 @@ same semantic moment.
 Both engines implement the same graduation fade (see the
 `calibration-and-graduation` skill): level ≥ 4 → no cues at all; level 3 →
 only the final-staging ("out the door") cues; levels 1–2 → full ladder.
-The fade is doctrine (the app must do less as the user improves) — never
+The fade is a deliberate design principle, stated in the `src/lib/notify.ts`
+header comment ("the app must do less as the clock improves") — never
 "fix" a missing cue by removing the level check.
 
 ## In-page ladder (`src/lib/notify.ts`)
@@ -128,10 +129,13 @@ every other `at`/key is an absolute ISO instant.
 closed-app path exists (no `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, no SW/PushManager
 support, permission not granted, or the server rejected the POST). Callers
 MUST NOT promise wake-ups unless it returned `true` — the armed screen in
-`lock/page.tsx` shows "You can close the app" only when `pushOk` is truthy,
-otherwise "Keep this screen open, or set a phone alarm". If you add UI that
-mentions closed-app behavior, gate the copy the same way. This is the
-"honest copy" principle (see `architecture-contract`).
+`lock/page.tsx` shows the "Keep this screen open, or set a phone alarm"
+fallback only when `pushOk === false`. Known gap: reopening an already-armed
+plan restores `armed` from `trip.armedAt` but leaves `pushOk` at its initial
+`null`, so the "You can close the app" promise can show without a fresh
+verification. If you add UI that mentions closed-app behavior, gate the
+copy on a verified `true` from `syncPushSchedule`. This is the "honest
+copy" principle (see `architecture-contract`).
 
 `getSubscription(create)` subscribes with `userVisibleOnly: true` and
 `urlBase64ToUint8Array(NEXT_PUBLIC_VAPID_PUBLIC_KEY)`; `syncPushSchedule`
@@ -176,8 +180,10 @@ an existing one.
   cache fallback then "/" offline shell — never serves a stale app after a
   deploy. `/_next/static/` is cache-first (content-hashed, immutable).
   Everything else passes through.
-- `message` `{type:"notify"}` → `registration.showNotification` (the page's
-  fallback message path into the SW).
+- `message` `{type:"notify"}` → `registration.showNotification`. No code in
+  `src/` posts this message — `fireCue` calls `reg.showNotification`
+  directly and falls back to the `Notification` constructor — so this
+  handler is currently unused (sw.js's own header comment overstates it).
 - `push` → `event.data.json()` → `showNotification(data.title ?? "Anchor",
   {body, tag, requireInteraction})`. The push payload IS the `PushCue` JSON.
 - `notificationclick` → focus an existing window, else
@@ -185,9 +191,11 @@ an existing one.
 - Registered by `src/components/sw-register.tsx`:
   `register("/sw.js", {scope: "/", updateViaCache: "none"})`.
 - `next.config.ts` `headers()` serves `/sw.js` with
-  `Cache-Control: no-cache, no-store, must-revalidate` plus a
-  `default-src 'self'` CSP. The worker file itself must never be cached or
-  users stick on an old SW after a deploy — do not remove these headers.
+  `Cache-Control: no-cache, no-store, must-revalidate`, a
+  `default-src 'self'; script-src 'self'` CSP, and an explicit
+  `Content-Type: application/javascript; charset=utf-8`. The worker file
+  itself must never be cached or users stick on an old SW after a deploy —
+  do not remove these headers.
 
 ## Modification recipes
 

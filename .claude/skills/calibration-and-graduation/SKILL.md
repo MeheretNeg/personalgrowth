@@ -29,9 +29,12 @@ three hold: `current.startedAt && current.taskId && elapsedSec >= 15`.
   feed medians (reality is always measured) but must never be scored as calibration reps.
 - **Travel logs**: `lock()` in `src/app/plan/page.tsx` rewrites travel step taskIds to
   `drive:<slug>` / `walk:<slug>` (slug of destination) so each route learns separately.
-  `guessFor()` reads `transit.driveGuessMinutes` / `walkGuessMinutes` for those prefixes;
-  Plan sets that field to 0 when the user accepted the median suggestion
-  (`driveSuggested` / `walkSuggested`) — accepting a suggestion is planning, not estimating.
+  `guessFor()` reads `transit.driveGuessMinutes ?? driveMinutes` / `walkGuessMinutes ??
+  walkMinutes` for those prefixes — if the guess field is ABSENT (it is optional in
+  `TransitDetails`), the PLANNED minutes score as a blind guess. Plan sets the guess field
+  to 0 when the user accepted the median suggestion (`driveSuggested` / `walkSuggested`) —
+  accepting a suggestion is planning, not estimating. Fixture warning (§7): hand-built
+  `anchor:trip` fixtures must set the guess field to 0 to mean "no rep", not omit it.
 - Debrief **Skip**, Execute **discard**, and Solo **abandon** log nothing, by design.
 - `Debrief` records (`appendDebrief`, key `anchor:debriefs`, append-only) carry
   `deltaMinutes` (negative = early), `causes`, optional `solo: true`.

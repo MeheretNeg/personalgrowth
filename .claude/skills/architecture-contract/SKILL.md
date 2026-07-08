@@ -26,6 +26,12 @@ first turns it into copying.
 - Quick-plan chips show `standardMinutes()` only when `planMode === "quick"`
   (quick mode is explicitly not a blind rep — see invariant 2).
 
+**Known gap:** the one-tap "My usual" card in step 2 (the `selectUsual` block
+in `src/app/plan/page.tsx`) shows an aggregate `standardMinutes()` total
+("~N min") before any guess, in train mode too — it is gated only on
+`lastTaskIds` and empty selections, not on `planMode` or level. Do not cite it
+as precedent for surfacing per-task times pre-guess.
+
 **Silent violation.** Any "helpful" UX change surfacing `personalMedian()`,
 `getPrior()`, or `planningMinutes()` earlier in the wizard — a placeholder,
 tooltip, autofill, or train-mode chip label — destroys the rep without any
@@ -140,8 +146,10 @@ flip the pill to "ahead".
 
 **Enforced in** the `driftMin` computation in `src/app/execute/page.tsx`
 (comment: "measured against the locked plan, not vibes"). Pending blocks use
-`-minutesUntil(step.startsAt, now)`; `farFuture` (≤ −120 min) shows a neutral
-pill. Overtime cues likewise measure from the ACTUAL `startedAt` in both
+`-minutesUntil(step.startsAt, now)`; `farFuture` (≤ −120 min) swaps the pill
+text to the neutral "Starts much later" copy — only the wording changes, the
+styling still follows the `ahead` branch. Overtime cues likewise measure from
+the ACTUAL `startedAt` in both
 `cueForStep()` (`src/lib/notify.ts`) and `buildPushCues()`
 (`src/lib/push-client.ts`).
 
@@ -175,6 +183,13 @@ the same plan, always. Three rules:
 3. In-page dedup keys (`headsup-<stepId>`, `missed-<stepId>-<nag>`,
    `overtime-<stepId>-<nag>`) double as push `tag`s in `buildPushCues()`, so
    the OS collapses duplicates when both paths fire.
+
+Three `saveTrip` sites deliberately do NOT sync or clear: trip creation in
+`src/app/plan/page.tsx` and the `visualizedAt` stamp effect in
+`src/app/lock/page.tsx` (no schedule is armed yet / the timeline is
+unchanged), and the debrief Skip button (`toDebrief()` already cleared the
+schedule). Do not copy them as precedent for a new mutation of an armed or
+executing trip.
 
 **Silent violation.** A new exit path or trip mutation that forgets its
 sync/clear call leaves stale "OUT THE DOOR" pushes firing hours after the trip
@@ -226,6 +241,25 @@ returns", not punishment. Keep that register in any new user-facing string —
 dishonest promises and shame framing are two of the four documented
 failure classes (see the `failure-archaeology` skill).
 
+## 13. localStorage is the only user state
+
+**Statement.** There is no backend database, no accounts, and no server-side
+copy of logs, debriefs, or settings. `src/lib/store.ts` is the sole
+persistence module; the only server state is the ephemeral push schedule
+(`.data/push.json`), which is delivery plumbing, never training data.
+
+**Why.** The training record lives on the device (README: "Data lives in
+localStorage (single-device)"), and every schema rule in
+`data-model-and-storage` assumes it. This is an established design principle
+evidenced throughout the code — not owner-decreed law — so changing it is an
+owner-sign-off proposal, not a fix. The tempting month-one violation is
+"solve serverless push loss with a database" — see `release-and-deploy` §4
+for why that must stay a labeled proposal.
+
+**Silent violation.** Any diff that POSTs user training data to a route
+handler, adds an ORM/DB dependency, or stores logs/debriefs/settings
+anywhere but `localStorage` via `store.ts`.
+
 ## Reviewer checklist (every diff)
 
 1. Does it surface `personalMedian`/`getPrior`/`planningMinutes` before a
@@ -244,6 +278,8 @@ failure classes (see the `failure-archaeology` skill).
 7. Does it remove a hydration sentinel or re-enable the disabled lint rule?
    (inv. 10)
 8. Does new copy promise unverified wake-ups or shame the user? (inv. 12)
+9. Does it introduce server-side user state, a database, or a second
+   persistence path around `store.ts`? (inv. 13)
 
 Prove any non-trivial change by driving the built app — see the `verify` skill.
 

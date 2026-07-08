@@ -63,11 +63,11 @@ src/app/
   layout.tsx            The ONLY server component (fonts, Metadata, Viewport, <SwRegister/>)
   page.tsx              Pulse dashboard + dispatcher: routes into the page matching trip.phase
   plan/                 4-step trip wizard (guess-first estimates, 5 transit modes)
-  lock/                 If-then chain + 20s visualization ritual + arm/waiting room
+  lock/                 If-then chain + visualization ritual (20s; 5s when already behind at lock) + arm/waiting room
   execute/              One task visible, 1s tick, drift pill, replan-from-now, cues
-  debrief/              Arrival delta + causes; the ONLY trip-side mutator of settings.level
+  debrief/              Arrival delta + causes; steps settings.level via stepToward (solo/ is the only other level mutator)
   stats/                Read-only: clock score, arrival record, level progress, medians
-  solo/                 Free solo (level ≥3): destination + time, no timeline
+  solo/                 Free solo (level ≥3): destination + time, no timeline; also steps settings.level on arrival
   manifest.ts           PWA manifest (MetadataRoute.Manifest, standalone, 3 icons)
   api/push/sync/route.ts POST-only; client re-posts its full cue schedule (503 without VAPID keys)
 src/components/
@@ -96,7 +96,11 @@ is the only module that touches localStorage; a running browser's
 localStorage is the only user state there is. Details in the
 `data-model-and-storage` skill.
 
-Every page and component is `"use client"` except `src/app/layout.tsx`.
+Every page and top-level component is `"use client"` except
+`src/app/layout.tsx`; most `src/components/ui/` primitives omit the directive
+(only `ui/dialog.tsx` carries it) and are only ever imported from client
+components.
+
 Hydration sentinels (`if (!ready) return null` mount-effect pattern) are
 load-bearing — see the `ui-conventions` skill before touching them.
 
@@ -113,7 +117,10 @@ distilled trap list and doc index; load it for any framework-level work.
 ## Doctrine at a glance
 
 These rules exist because breaking them silently corrupts the training data
-or lies to the user. Do not "fix" them away.
+or lies to the user. Do not "fix" them away. Only "verify by driving" is
+owner-confirmed doctrine; the other rows are design principles evidenced in
+code comments and commit history — treat them with the same care, but their
+authority is the evidence, not an owner decree.
 
 | Principle | Rule | Detail lives in |
 |---|---|---|
@@ -122,6 +129,7 @@ or lies to the user. Do not "fix" them away.
 | Earned levels | Graduation moves ONE step per debrief toward the earned level; demotion only when that debrief was itself late (`stepToward` in `src/lib/graduation.ts`) | `calibration-and-graduation` |
 | Honest copy | Never promise what isn't verified (e.g. "you can close the app" only after push sync succeeded). No shame or punishment framing | `ui-conventions`, `notification-pipeline` |
 | Pure engine | `src/lib/engine.ts` imports no UI and no storage, so a live traffic/transit API can be injected later. The anchor (arrival) never moves on replan | `timeline-engine` |
+| localStorage only | The training record lives on the device. No backend, no accounts, no server-side user state (the ephemeral push schedule is plumbing, not data). Adding a DB/sync is an owner-sign-off proposal, not a fix | `data-model-and-storage`, `architecture-contract` (inv. 13) |
 
 Also intentional, not a bug: the eslint rule
 `react-hooks/set-state-in-effect` is OFF (mount-effect localStorage
@@ -142,7 +150,7 @@ hydration on prerendered client pages requires it).
 | Something is broken; reproducing bugs | `debugging-playbook` |
 | Why the code is weird here — past incidents and their fixes | `failure-archaeology` |
 | Making a change safely: scope, review gates, what not to touch | `change-control` |
-| Shipping: Vercel, PWA/SW update mechanics, env keys | `release-and-deploy` |
+| Shipping: Vercel, PWA/SW update mechanics, env keys, rollback, public-release gaps | `release-and-deploy` |
 | Improving the training science itself (owner's live priority) | `research-frontier` |
 
 When in doubt: read `architecture-contract` next, then the skill nearest

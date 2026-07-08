@@ -119,12 +119,12 @@ Drive with the `verify` skill's harness; assert at least these per area.
 |---|---|
 | /plan | Guess-first: the prior ("Typical person: N min") is NOT in the DOM before the guess is locked (L1–L2). L≥3: button reads "Lock it in" and no prior EVER renders (`src/app/plan/page.tsx`, `lockGuess`). L2 auto-accepts within `COACH_FLAG_THRESHOLD` 0.4 of median/prior — no compare card. `unplannedCount > 0` blocks step advance (no silent zero-minute task). |
 | /lock | Dose = 20s, 5s when `behindAtLock`; the begin button stays hidden until the countdown elapses. `visualizedAt` persists once and is NOT re-enforced on reopen (the persist effect in `src/app/lock/page.tsx` bails on `trip.visualizedAt`). |
-| /execute | `finish()` logs only when `startedAt && taskId && elapsedSec ≥ 15`, and writes `actualSeconds`. Drift is projected (late start never shows "ahead"); pending ≤ −120 min shows the neutral pill. "Replan from now" appears only when behind ≥ 3 min with prep remaining (`canReplan`); confirm keeps the anchor fixed. Cues fire and dedupe per the `verify` skill's Notifications section. |
+| /execute | `finish()` logs only when `startedAt && taskId && elapsedSec ≥ 15`, and writes `actualSeconds`. Drift is projected (late start never shows "ahead"); pending ≤ −120 min shows the "Starts much later" pill — assert on that text, not the styling (the pill keeps the ahead classes; only "On plan" uses the neutral style). "Replan from now" appears only when behind ≥ 3 min with prep remaining (`canReplan`); confirm keeps the anchor fixed. Cues fire per the `verify` skill's Notifications section and dedupe on cue key — each fires once per `cue.key` (`firedCues` set in `src/app/execute/page.tsx`, cleared on replan confirm, so replanned steps may re-cue). |
 | /debrief | Delta prefills from `arrivedAt` only when \|measured\| ≤ 120 min. `save()` runs `stepToward(level, earnedLevel(...), delta > 0)` — exactly one level step, demotion only if THIS debrief was late. Save schedules the 20:30 plan-nudge via `syncCues([planNudgeCue(...)])`. Skip logs nothing. |
 | /stats | Score matches `calibrationScore` of seeded logs. Bias line renders only when \|`meanSignedErrorPct`\| ≥ 10; positive bias ("guess short") uses the destructive color. `levelProgress` have/need matches `LEVELS` thresholds. |
 | /solo | Home entry card renders only at `level ≥ 3` (`src/app/page.tsx`); the /solo route itself is NOT gated (known gap — don't "fix" it silently, flag it). Arrive writes a `Debrief{solo:true}` and runs the same `stepToward`. |
 | Push API | No VAPID env: `POST /api/push/sync` → 503 `{enabled:false}`. With keys: 200 `{enabled:true, scheduled:n}`; bad JSON / missing endpoint / invalid cues → 400 (`src/app/api/push/sync/route.ts`). End-to-end send: fake-endpoint recipe in the `verify` skill, "Web push". |
-| SW / PWA | `GET /manifest.webmanifest` → 200 (3 icons, standalone). `/sw.js` → 200 with `Cache-Control: no-store` and reaches state `activated` (`navigator.serviceWorker.ready`). |
+| SW / PWA | `GET /manifest.webmanifest` → 200 (3 icons, standalone). `/sw.js` → 200 with `Cache-Control` containing `no-store` (full value `no-cache, no-store, must-revalidate`, `next.config.ts` headers — assert substring, not equality) and reaches state `activated` (`navigator.serviceWorker.ready`). |
 
 ## Invariant checklist — run before declaring done
 
@@ -133,7 +133,8 @@ Column 2 is the how (verify-skill section or one-line assertion).
 
 1. `npm run build` exits 0 — build gate (includes TS check).
 2. `npm run lint` exits 0.
-3. Fresh context: `GET /` 200 and the Pulse renders (no hydration blank).
+3. Fresh context: `GET /` 200 and the home screen (`Pulse`, `src/app/page.tsx`)
+   renders its "Plan my next arrival" CTA — not a hydration blank.
 4. Prior text absent from /plan DOM pre-lock at L1 — verify skill, step 4.
 5. L≥3 /plan shows "Lock it in", no compare card — verify skill, Phase 2.
 6. Lock dose enforced: begin button absent until 20s (5s behind) elapses —
@@ -153,7 +154,8 @@ Column 2 is the how (verify-skill section or one-line assertion).
 14. Exit paths (discard, out-the-door → debrief) call `clearPushSchedule` —
     after exit, a sync-inspecting stub or `.data/push.json` shows no stale
     cues for the trip.
-15. `/manifest.webmanifest` 200 and `/sw.js` 200 + `no-store` + activated.
+15. `/manifest.webmanifest` 200 and `/sw.js` 200 + `Cache-Control` includes
+    `no-store` + activated.
 
 ## Honest reporting
 

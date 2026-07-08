@@ -10,7 +10,9 @@ or punished the user — all while every screen looked fine. This file is the
 case record. Before changing anything near `appendLog`, `stepToward`,
 `scorableLogs`, or timeline/date math, read the matching case and run its
 regression check. For the invariants themselves see `architecture-contract`;
-for symptom-driven diagnosis see `debugging-playbook`.
+for symptom-driven diagnosis see `debugging-playbook`. Where a check says
+"seed" (logs, levels, trip state), use the localStorage fixture cookbook in
+the `validation-and-qa` skill.
 
 ## Mine the history yourself
 
@@ -149,8 +151,11 @@ calibration). These bugs wrote lies into it with zero visible symptoms.
 - **Fix** (`d1028f0`): `rollBeforeArrival()` (`src/lib/engine.ts`) forces
   the anchor within 24h BEFORE the arrival; `anchorTime()` applies it to
   both transit departures and pickup times.
-- **Regression check**: `buildTimeline` with arrival 00:30 and
-  `transitDepartureTime: "23:45"` — the anchor must land the previous day.
+- **Regression check**: drive a transit plan with arrival 00:30 and a
+  23:45 departure time (see "Midnight anchors roll back" under the `verify`
+  skill's Audit-round behaviors) — the departure step must land on the
+  previous calendar day. There is no way to call `buildTimeline` directly
+  (no test runner, by design) — driving is the check.
 
 ### 4.2 DST: +24h of milliseconds is not "tomorrow"
 - **What**: rolling a past arrival time to tomorrow by adding 86,400,000 ms

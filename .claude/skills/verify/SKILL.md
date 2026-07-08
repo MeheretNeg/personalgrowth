@@ -66,13 +66,15 @@ The full loop to drive (all state in localStorage, no backend):
   prior ever enters the DOM. The guess-first invariant only applies at L1/L2.
 - **Plan modes**: /plan step 3 has a Train-my-clock / Quick-plan toggle
   (persisted as settings.planMode, default "train"). Quick plan fills each
-  task the moment its chip is tapped (personal median else p50) — no time
+  task the moment its chip is tapped (planningMinutes() — ~p75 of the last
+  8 actuals — else the prior's p75; see "Audit-round behaviors") — no time
   inputs at all. Execute logs actuals for EVERY task (guessMinutes 0 when
   no guess), so medians keep learning; calibrationScore/errorTrend only
   count logs with guessMinutes > 0.
 - **Standard-times escape hatch** (train mode only): in /plan step 3, "Use standard times"
-  fills every un-guessed task with the personal median (source "your
-  history") or the international-average p50 (source "typical"). Those
+  fills every un-guessed task with planningMinutes() (~p75 of the last 8
+  actuals; stored source "history", shown as "your history") or the
+  population prior's p75 (stored source "prior", shown as "typical"). Those
   tasks carry guessMinutes 0 and are excluded from calibration logging in
   /execute. The guess-first invariant doesn't apply to hatch-filled tasks
   (the user explicitly skipped the rep); the compare card still never
@@ -136,7 +138,9 @@ The full loop to drive (all state in localStorage, no backend):
 - **Replan from now**: on /execute, behind ≥3 min with prep remaining
   shows "Replan from now". Dialog lists remaining prep with tap-to-cut,
   live fits/over indicator (anchor never moves), confirm rebuilds
-  remaining steps backward from the anchor and resets startedAt.
+  remaining steps backward from the anchor. The in-flight step KEEPS its
+  real startedAt (resetting it would re-log a 15-min shower as ~2 min);
+  all other rebuilt steps get startedAt/finishedAt cleared.
 - **Rewards**: finishing a block under plan flashes "+N min banked" (5s);
   debrief + Pulse surface the on-time streak at ≥2.
 - **Debrief loop-closer**: buildPushCues adds "Did you make it?" pushes at

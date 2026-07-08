@@ -105,8 +105,9 @@ separate travel medians. Execute's `finish()` logs durations against that
 namespaced id, and Plan's step-1 record lookup reads
 `personalMedian(logs, "drive:" + slug(destination))`. If you add a new
 measurable travel block, tag it in `travelChain()` AND extend the rewrite in
-`lock()` — an untagged block is never measured; an unrewritten one pools all
-destinations into one median (this exact drive-taskId bug was fixed in PR #6).
+`lock()` — an untagged block is never measured (this exact drive-taskId bug
+was fixed in PR #6: the Drive block shipped without a `taskId`, so the slug
+rewrite never ran); an unrewritten one pools all destinations into one median.
 
 ## Replan — `rebuildRemaining(timeline, fromIndex, keepTaskIds)`
 
@@ -205,8 +206,11 @@ synchronous. Two rules: (a) an API-supplied number is planning data, not the
 user's estimate — set the matching `*GuessMinutes` to 0 exactly like the
 "Plan with N min" suggestion buttons do, or calibration scores a copied
 answer as a perfect rep; (b) at levels 1–2 the API value must not render
-before the blind guess is locked. This app currently has no backend and no
-API keys; adding one is a Phase-3-scale change — read `change-control` first.
+before the blind guess is locked. This app currently has no external data
+APIs and no third-party API keys — the only server code is the Web Push sync
+route (`src/app/api/push/sync/route.ts`, see `notification-pipeline`). Adding
+a live traffic/transit API is a Phase-3-scale change — read `change-control`
+first.
 
 ## Invariants — re-verify after ANY engine change
 
@@ -220,8 +224,10 @@ API keys; adding one is a Phase-3-scale change — read `change-control` first.
    `endsAt` === step i+1's `startsAt`; `startAt` === step 0's `startsAt`.
 4. **`leaveDoorAt`** is the start of the first non-prep step (the staging
    block), for every mode.
-5. **DST**: all day rolls are `setDate`, no `±24h` ms arithmetic anywhere
-   (grep for `3600_000` and `86_400` when in doubt).
+5. **DST**: all day rolls are `setDate`; ±24h of ms may appear only as a
+   comparison bound, never as date arithmetic (grep for `3600_000` and
+   `86_400` when in doubt — the single expected hit is `rollBeforeArrival()`'s
+   window comparison in `src/lib/engine.ts`; any other hit is a violation).
 6. **Purity**: engine.ts imports only `./priors` and `./types`; no
    `Date.now()`, `window`, fetch, or storage.
 7. **Running-block honesty**: after replan, only the in-flight step retains

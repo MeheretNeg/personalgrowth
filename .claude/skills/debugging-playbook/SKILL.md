@@ -22,6 +22,23 @@ Where each subsystem keeps its state:
 
 Nothing logs to a backend. `console.warn("[push] send failed", …)` in `push-server.ts tick()` is the only server-side trace.
 
+## Debugging on a real Android device
+
+Headless repro is the first step, but several behaviors are
+installed-PWA-specific and cannot be observed headlessly (`new
+Notification()` throwing, vibration, wake lock, install banner). When the
+report is "works on desktop, broken on my phone":
+
+1. Enable Developer options → USB debugging on the phone; connect via USB.
+2. On desktop Chrome open `chrome://inspect#devices`, find the installed
+   PWA's window (it lists as a Chrome tab/WebView), click **inspect**.
+3. You now have full DevTools against the live app: read the `anchor:*`
+   localStorage keys, watch the console, check the service worker state —
+   exactly as in §9 below.
+4. Notification behavior differs installed-vs-tab (§2 item 4): a phone
+   repro is mandatory before declaring any notification bug fixed. See
+   `release-and-deploy` §6 for the platform matrix (iOS is unvalidated).
+
 ## 1. Blank page or hydration mismatch on load
 
 **Symptom**: a route renders nothing, or React logs a hydration error.
@@ -52,7 +69,7 @@ Headless repro: verify skill "Notifications" — `grantPermissions(["notificatio
 1. **VAPID env.** `pushEnabled()` (`src/lib/push-server.ts`) requires BOTH `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`; without them `/api/push/sync` returns 503 `{enabled:false}` and the client (`src/lib/push-client.ts`) no-ops entirely. This is the designed degraded mode — UI must not promise wake-ups (`syncPushSchedule` returns false; Lock's armed copy keys off it).
 2. **Hosting.** The 30s send loop (`ensurePushLoop`, booted by `src/instrumentation.ts` only when `NEXT_RUNTIME === "nodejs"`) runs inside the Next server process. On serverless (Vercel) it only runs while an instance is warm and `.data/push.json` is not durable — closed-app cues need a persistent `next start` host. This is a platform limit, not a bug to "fix" with hacks.
 3. **Cue built at all?** `buildPushCues()` returns `[]` at level ≥ 4 or when `trip.phase` is not `"executing"`/`"locked"`, and drops anything ≤ `now + 5s`. Client caps at 55 soonest, server (`src/app/api/push/sync/route.ts`, `MAX_CUES = 60`) at 60 — on long plans far-future nag rungs are silently dropped, soonest kept.
-4. **Sent but dropped.** `tick()` drops cues older than 10 min (`STALE_MS` — a pre-restart "leave now" must never fire mid-afternoon) and sends with `TTL: 180` — a device offline > 3 min at send time never sees it. A 404/410 from the push service deletes the whole entry (expired subscription; client re-subscribes on next `getSubscription(true)`).
+4. **Sent but dropped.** `tick()` drops cues older than 10 min (`STALE_MS` — a pre-restart "leave now" must never fire mid-afternoon) and sends with `TTL: 180` — a device offline > 3 min at send time never sees it. A 404/410 from the push service deletes the whole entry (expired subscription). Recovery is NOT guaranteed: `getSubscription(true)` (`src/lib/push-client.ts`) reuses whatever subscription the browser returns and only subscribes anew when the browser reports none — a browser that keeps handing back a dead subscription re-posts it and gets 410-dropped again (there is no `unsubscribe()` or `pushsubscriptionchange` handler).
 5. **Schedule cleared.** Every trip mutation re-posts the full schedule replace-not-merge; `toDebrief()`/discards call `clearPushSchedule()` (empty list clears). Inspect `.data/push.json` to see what the server actually holds.
 
 Headless repro without a real push service: verify skill "Web push" (fake subscription + local HTTP listener + `PUSH_TICK_MS=1000`). Any fix must keep the tag namespace shared with in-page cue keys — that is what lets the OS collapse duplicates when both paths fire.
@@ -120,7 +137,7 @@ Deploy checklist: `release-and-deploy`.
 A bounce loop means `anchor:trip` holds a phase the target page rejects (usually a hand-edited or half-migrated trip). To inspect/reset safely in DevTools → Application → Local Storage:
 - Read `anchor:trip` and check `.phase` against `"locked" | "executing" | "debrief" | "done"` (a persisted trip is never written as `"planning"`).
 - To reset: `localStorage.removeItem("anchor:trip")` (exactly what `clearTrip()` does). NEVER touch `anchor:logs` or `anchor:debriefs` — they are the append-only training record; the app itself has no code path that clears them.
-- A hand-cleared trip skips `clearPushSchedule()` — a stale closed-app cue may still fire once; the server's 10-min stale drop bounds the damage. Same applies to any new exit path you add: call `clearPushSchedule()`.
+- A hand-cleared trip skips `clearPushSchedule()` — the server keeps the full remaining schedule (up to 55 cues) and each still fires at its scheduled time. The 10-min stale drop only discards cues already past due (the post-restart case), not future ones. So after a hand-reset, also clear the schedule: call `clearPushSchedule()` from the app (or delete `.data/push.json` with the server stopped — on a running server the in-memory Map just rewrites it); the next trip's sync replaces it in any case. Same applies to any new exit path you add: call `clearPushSchedule()`.
 - `anchor:solo` is a parallel machine; clearing the trip does not touch it.
 
 ## 10. Build or lint fails in ways your training data won't explain

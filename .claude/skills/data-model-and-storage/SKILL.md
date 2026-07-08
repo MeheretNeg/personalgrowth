@@ -23,7 +23,7 @@ All keys are defined in `src/lib/store.ts` (`KEYS` const, prefix `anchor:`).
 | `anchor:debriefs` | `Debrief[]` | `[]` | `appendDebrief()`: debrief `save()`, solo `arrived()` | **never** | Permanent, append-only training record |
 | `anchor:settings` | `Settings` | `DEFAULT_SETTINGS` | `saveSettings()`: plan `choosePlanMode()` (planMode), execute `saveChecklist()` (exitChecklist), debrief/solo (level) | never | Permanent |
 | `anchor:lastTasks` | `string[]` | `[]` | `saveLastTaskIds()`: plan `lock()` | never | Overwritten per lock; powers "My usual" |
-| `anchor:solo` | `SoloTrip \| null` | `null` | `saveSolo()`: solo `begin()` | `clearSolo()`: solo `arrived()`/cancel | Parallel machine to `anchor:trip`; they never touch each other |
+| `anchor:solo` | `SoloTrip \| null` | `null` | `saveSolo()`: solo `begin()` | `clearSolo()`: solo `arrived()`/`abandon()` | Parallel machine to `anchor:trip`; they never touch each other |
 
 `DEFAULT_SETTINGS = { earlyBufferMinutes: 10, level: 1 }` (`src/lib/store.ts`).
 
@@ -85,8 +85,9 @@ Any consumer must tolerate its absence on old records.
 `planMode?` and `exitChecklist?` — the two live examples of the additive
 optional-field pattern.
 
-**`SoloTrip`** — `{ destination, arrivalTime, startedAt }`, all ISO strings,
-no phase and no timeline.
+**`SoloTrip`** — `{ destination, arrivalTime, startedAt }`; `arrivalTime`
+and `startedAt` are ISO strings, `destination` is a free-text name; no phase
+and no timeline.
 
 ## Sentinel semantics (these values carry meaning — never "fix" them)
 
@@ -95,7 +96,7 @@ no phase and no timeline.
 | `PlannedTask.guessMinutes === 0` | No blind guess was made (quick plan / "Use standard times"). The rep is unscored. | `guessFor()` in `src/app/execute/page.tsx` returns null; `guessedReps()` in `src/lib/graduation.ts` counts only `guessMinutes > 0`; `calibrationScore()` in `src/lib/calibration.ts` filters them out |
 | `driveGuessMinutes === 0` / `walkGuessMinutes === 0` (`TransitDetails`) | User accepted the median suggestion in Plan step 1 (`driveSuggested`/`walkSuggested`). Accepting a suggestion is planning, not estimating — it must never score as a near-perfect rep. | Plan's `transit` memo writes 0 when suggested; `guessFor()` treats 0 as "no rep" |
 | `DurationLog.guessMinutes === 0` | Measured actual with nothing to score. **Still feeds personal medians** (medians learn from actuals); excluded from calibration score and rep counts. | Same functions as above |
-| `PlannedTask.source` | `"guess"` = user's own number kept; `"prior"` = population number (p75 "slow day" / `standardFor()`); `"history"` = personal `planningMinutes()`/median | Set in plan `choose()`/`lockGuess()`/`standardFor()`; shown in debrief and stats |
+| `PlannedTask.source` | `"guess"` = user's own number kept; `"prior"` = population number (p75 "slow day" / `standardFor()`); `"history"` = personal `planningMinutes()`/median | Set in plan `choose()`/`lockGuess()`/`standardFor()`; displayed only on the plan page's task list (`src/app/plan/page.tsx`); persisted on the trip but not read by debrief or stats today |
 | `TripPhase "planning"` | Declared, routed, never persisted (see above) | plan `lock()` |
 
 The median-honesty chain is interdependent: guess-0 sentinel + sub-15-second
@@ -175,7 +176,9 @@ The one piece of state not in the browser (`src/lib/push-server.ts`):
   (`src/app/api/push/sync/route.ts`) on every trip transition —
   replace-not-merge, empty list clears, at most `MAX_CUES = 60` soonest kept.
   `setSchedule()`/`persist()` write the file; `ensurePushLoop()` reloads it
-  on boot and runs a 30s tick (`PUSH_TICK_MS`) that sends due cues, drops
+  on boot and runs a tick every 30s by default (`TICK_MS` in
+  `src/lib/push-server.ts`, overridable via the `PUSH_TICK_MS` env var) that
+  sends due cues, drops
   cues 10+ minutes stale, and deletes subscriptions on 404/410.
 - The file is gitignored (`/.data/` in `.gitignore`) and only exists after a
   first sync with VAPID keys configured (`pushEnabled()`); without keys the

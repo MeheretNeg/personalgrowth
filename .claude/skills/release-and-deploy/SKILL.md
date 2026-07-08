@@ -25,6 +25,28 @@ Before pushing, run the full gate (details and per-area checklists in the
 3. Headless-drive the flows your diff touches per the `verify` skill
    (`npm run start -- --port 3100`, Playwright against the production build).
 
+## 1b. When a deploy goes bad
+
+There is no staging — assume you will ship a bad build eventually. The
+runbook for the minutes after:
+
+1. **Fastest rollback:** Vercel dashboard → the project → Deployments →
+   pick the last good deployment → **Instant Rollback** (or "Promote to
+   Production"). Env vars are unaffected. Production is back before you
+   have diagnosed anything.
+2. **Durable fix:** `git revert <bad-sha> && git push origin main` — never
+   force-push `main`; installed PWAs and the Vercel deploy history both
+   assume forward-only history.
+3. **Where to look:** Vercel deploy logs for build failures that did not
+   reproduce locally (env differences, missing vars); Functions logs for
+   `/api/push/sync` 500s. Locally, reproduce with `npm run build &&
+   npm run start` — not `npm run dev`.
+4. **Propagation:** once production serves the good build again, the SW
+   update mechanics (section 2) deliver it to installed PWAs on their next
+   online open — no user action needed. If the bad deploy changed
+   `public/sw.js` caching behavior itself, re-read section 2 before
+   assuming recovery is automatic.
+
 ## 2. How users get the new app (PWA update mechanics)
 
 Four mechanisms combine so an installed user gets the new build on next open,
@@ -48,8 +70,10 @@ do NOT require a bump — navigations are network-first and new static assets
 have new hashed URLs (old ones just sit unused). Bump the name (`anchor-v2`)
 when you change what or how the worker caches (fetch-handler logic,
 `OFFLINE_URLS`, response formats) or need to force-purge everything cached on
-every device. Never rename it casually: the bump wipes the offline shell until
-the next successful online visit re-caches it.
+every device. Never rename it casually: the bump discards every previously
+cached navigation and static asset; the new worker's install re-caches only
+`/` (`OFFLINE_URLS`), so any other cached page is unavailable offline until
+revisited online.
 
 **Never add a webpack block to `next.config.ts`** — it makes `next build`
 fail under Turbopack (see `nextjs-16-contract`). The `headers()` function is
@@ -75,9 +99,15 @@ cp .env.example .env.local   # paste the keys in
 
 On Vercel, set the same vars in Project Settings → Environment Variables.
 `NEXT_PUBLIC_VAPID_PUBLIC_KEY` is inlined into the client bundle at build
-time — changing it requires a redeploy, and rotating the keypair orphans all
-existing push subscriptions (server gets 404/410 and drops them; clients
-re-subscribe on the next `getSubscription(true)`).
+time — changing it requires a redeploy. **Rotating the keypair breaks push
+for every existing install, with no automatic recovery in the code:**
+`getSubscription(true)` (`src/lib/push-client.ts`) returns the browser's
+existing old-key subscription as-is — no unsubscribe/re-subscribe path exists
+anywhere in `src/` — and the server's `tick()` (`src/lib/push-server.ts`)
+drops an entry only on a 404/410 send failure; any other rejection is logged
+and the stale entry kept. Affected users regain push only after the browser
+invalidates the old subscription or they clear site data. Treat rotation as
+a breaking change.
 
 **Keyless deploys are safe.** Without both keys: `POST /api/push/sync`
 returns `503 {enabled:false}` (`pushEnabled()` check in
@@ -155,10 +185,28 @@ Checklist:
   (`navigator.wakeLock.request("screen")`, `src/app/execute/page.tsx`) so
   time stays visible during execution while the page is visible.
 - **iOS has not been validated.** The README and manifest target Android;
-  no iOS-specific handling exists in the repo. Do not claim iOS support in
+  the only iOS-specific code is the `appleWebApp` metadata block in
+  `src/app/layout.tsx` (home-screen meta tags) — nothing iOS-specific exists
+  in the notification or service-worker paths. Do not claim iOS support in
   copy or docs until someone actually tests it.
 
-## 7. Never commit
+## 7. Known gaps before public release
+
+The owner is aiming for a public release. These are the known gaps between
+HEAD and strangers' devices; each row points at the skill that owns the
+detail. Remove a row when it ships fixed; if one ships broken,
+`failure-archaeology` gains a case.
+
+| Gap | Detail lives in |
+|---|---|
+| iOS entirely unvalidated | this skill, §6 |
+| Closed-app push is best-effort on Vercel serverless | this skill, §4 |
+| Armed-screen promise gated only on `pushOk === false` (null on reopen) | `notification-pipeline` (honesty contract), `architecture-contract` |
+| "Chop chop." urgency copy still present in `src/lib/notify.ts` | `failure-archaeology` (shame-copy case) |
+| `/solo` route not level-gated (home entry card only) | `architecture-contract` |
+| No user-facing export/backup — clearing site data destroys the whole training record | `data-model-and-storage`; export recipe in `research-frontier` |
+
+## 8. Never commit
 
 Verified against `.gitignore`:
 
@@ -170,7 +218,8 @@ Verified against `.gitignore`:
 - Also ignored: `/.next/`, `/node_modules`, `*.pem`, `.vercel`.
 
 If a private key ever lands in history, rotate the VAPID pair (regenerate,
-update Vercel env, redeploy) — do not just delete the commit.
+update Vercel env, redeploy) — do not just delete the commit. Rotation
+silently breaks push for all existing subscribers — see section 3.
 
 ## Provenance & maintenance
 

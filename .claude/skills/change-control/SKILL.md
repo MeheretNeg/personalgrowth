@@ -10,7 +10,7 @@ bottom for every non-trivial edit.
 
 ## 1. Before touching any code
 
-1. Read `AGENTS.md` (repo root). It is four lines and binding: this is
+1. Read `AGENTS.md` (repo root). It is one paragraph and binding: this is
    Next.js 16 — APIs differ from training data. Read the relevant guide in
    `node_modules/next/dist/docs/` before writing framework code.
 2. Load the sibling skill for your task:
@@ -40,8 +40,9 @@ bottom for every non-trivial edit.
 
 ## 3. The gate sequence (every change, in order)
 
-1. `npm run build` — Turbopack build, includes the TypeScript check
-   (12 routes at time of writing). Build does NOT lint in Next 16.
+1. `npm run build` — Turbopack build, includes the TypeScript check. The
+   route table printed at the end lists every app route — it should only
+   change when you added or removed one. Build does NOT lint in Next 16.
 2. `npm run lint` — runs `eslint` directly against the flat config
    `eslint.config.mjs`. `next lint` no longer exists.
 3. Headless-drive the affected loop per the `verify` skill (the canonical
@@ -54,7 +55,7 @@ Map what you touched to the `verify` skill section that exercises it:
 
 | Touched | Drive per `verify` section |
 |---|---|
-| `src/app/plan|lock|execute|debrief/` | "Drive the surface" full loop, plus the matching "Phase 2" / "Audit-round" / "Psychological-loop" items |
+| `src/app/{plan,lock,execute,debrief}/` | "Drive the surface" full loop, plus the matching "Phase 2" / "Audit-round" / "Psychological-loop" items |
 | `src/lib/engine.ts` | Plan step 4 timeline + "Midnight anchors roll back" + replan ("Replan from now") |
 | `src/lib/calibration.ts`, `priors.ts`, `graduation.ts` | "Phase 2 behaviors": graduation seeding, level fading, plan modes; "Audit-round": p75 planning numbers, logging guard |
 | `src/lib/notify.ts`, `push-client.ts`, `push-server.ts`, `src/app/api/push/sync/` | "Notifications" stubs + "Web push (closed-app cues)" fake-subscription drill |
@@ -124,9 +125,17 @@ this is the reviewer's short form.
 ## 5. Skill-library maintenance
 
 When your change invalidates a claim in any `.claude/skills/*/SKILL.md`,
-update that skill in the SAME PR. Each skill lists its update triggers in
-its "Provenance & maintenance" section — after editing a file, grep the
-skill library for the paths and symbols you changed.
+update that skill in the SAME PR. Each skill (except the pre-existing
+`verify` harness) lists its update triggers in its "Provenance &
+maintenance" section — after editing a file, grep the skill library for
+the paths and symbols you changed.
+
+The `verify` skill's section headings ("Drive the surface", "Phase 2
+behaviors", "Audit-round behaviors", "Web push (closed-app cues)", …) are a
+stable API — several sibling skills route to them by name (including the
+table in §3 above). Before renaming or restructuring anything in
+`verify/SKILL.md`, grep `.claude/skills/*/SKILL.md` for the old heading
+text and update every referrer in the same PR.
 
 ## 6. Do NOT
 
@@ -141,9 +150,11 @@ skill library for the paths and symbols you changed.
 - Do not create `middleware.ts` — deprecated in Next 16 (`proxy.ts` is the
   replacement if ever needed); the `/sw.js` headers already live in
   `next.config.ts` `headers()`, the right place.
-- Do not weaken a doctrine invariant (guess-first, earned graduation,
-  honest copy, anchor immobility, no-shame framing) to smooth a UX edge —
-  that trade-off needs explicit owner sign-off, in the PR description.
+- Do not weaken an established design-principle invariant (guess-first,
+  earned graduation, honest copy, anchor immobility, no-shame framing) to
+  smooth a UX edge — these are evidenced throughout the code and commit
+  history; that trade-off needs explicit owner sign-off, in the PR
+  description.
 
 ## 7. Definition of done
 
@@ -155,6 +166,9 @@ skill library for the paths and symbols you changed.
 - [ ] `.env.local` and `.data/` absent from the diff.
 - [ ] Commit message: imperative subject, why in the body, failures and
       unverified paths reported plainly.
+- [ ] If this merges to `main` it deploys to production within minutes —
+      know the rollback path first (`release-and-deploy`, "When a deploy
+      goes bad").
 
 ## Provenance & maintenance
 

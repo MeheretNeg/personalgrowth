@@ -67,6 +67,27 @@ infrastructure before exhausting what is already logged:
   from the arrive tap. Solo debriefs vs scaffolded debriefs over time is the
   closest thing to a transfer measurement the data already supports.
 
+### Getting the record out for analysis
+
+There is no export UI. To analyze real distributions (e.g. validating the
+`LEVELS` gates), extract the record manually:
+
+1. **Desktop browser:** DevTools console on the app origin →
+   `copy(localStorage.getItem("anchor:logs"))` (same for `anchor:debriefs`,
+   `anchor:settings`) — the JSON is now on the clipboard.
+2. **Installed Android PWA:** enable USB debugging on the phone, open
+   `chrome://inspect#devices` on a desktop Chrome, inspect the PWA's window,
+   then run the same console command.
+3. **Analyze** with throwaway Node scripts in your scratchpad that import
+   nothing from the app — re-implement or copy the pure formulas from
+   `src/lib/calibration.ts` / `src/lib/graduation.ts` against the exported
+   JSON. Never commit analysis scripts (verify-by-driving doctrine — see
+   `validation-and-qa`).
+
+A user-facing export/backup feature is a legitimate frontier candidate
+(it is also a public-release gap — see `release-and-deploy`), but it must
+follow the schema rules in `data-model-and-storage` and honest-copy review.
+
 ## Frontier directions (SPECULATIVE — none of this exists in code)
 
 Each of these is a legitimate next experiment. Each must go through the
@@ -75,11 +96,13 @@ method in the next section before a line of code changes.
 1. **Adaptive difficulty** — bias task selection/prompting toward the tasks
    where the per-task error is worst (the data per `taskId` already exists in
    the logs; nothing consumes it for targeting yet).
-2. **Spacing/consolidation** — the plan nudge fires daily at 20:30 regardless
-   of record; spaced-practice literature suggests rep scheduling could adapt
-   to consolidation rather than pure recency.
-3. **Per-context priors** — `personalMedian()` pools all logs per task;
-   morning-shower vs evening-shower, weekday vs weekend medians may differ.
+2. **Spacing/consolidation** — the plan nudge is a single one-shot cue
+   scheduled once per debrief, always at the next 20:30, regardless of the
+   record; spaced-practice literature suggests rep scheduling could adapt to
+   consolidation rather than pure recency.
+3. **Per-context priors** — `personalMedian()` pools the last 5 logs per
+   task across all contexts; morning-shower vs evening-shower, weekday vs
+   weekend medians may differ.
    Requires more logs per cell — check `MIN_LOGS_FOR_HISTORY` math first.
 4. **Bias-corrected planning** — `meanSignedErrorPct()` is computed and
    displayed but never applied; a measured "+30% short" bias could adjust
@@ -98,8 +121,8 @@ are explicitly secondary to the above per the owner.
 ## The method for any science change
 
 Follow all five steps, in order. Skipping step 2 is how training data gets
-silently corrupted — the costliest failure class in this repo's history (see
-the `failure-archaeology` skill).
+silently corrupted — one of the four documented failure classes in this
+repo's history (see the `failure-archaeology` skill).
 
 1. **Write the hypothesis and its metric first.** One sentence: "Changing X
    will move metric Y (as computed by `<function>` in `src/lib/calibration.ts`
@@ -120,9 +143,11 @@ the `failure-archaeology` skill).
    (owner-confirmed doctrine): prove behavior by driving the real app with a
    controlled clock per the `verify` skill. Do not add jest/vitest.
 5. **Never oversell in copy.** Any UI claim must match what is measured. The
-   precedent: the armed screen only says "you can close the app" after
-   `syncPushSchedule()` verifiably returned true (`src/app/lock/page.tsx`,
-   `pushOk`). Apply the same standard to every science-adjacent sentence.
+   precedent: the arming flow records whether `syncPushSchedule()` returned
+   true (`src/app/lock/page.tsx`, `pushOk`), and the armed screen downgrades
+   to an honest "set a phone alarm" warning whenever it verifiably failed
+   (`pushOk === false`). Apply the same standard to every science-adjacent
+   sentence.
 
 ## Reading list (only what the repo actually cites)
 
@@ -159,6 +184,6 @@ home (the pattern above), and add the row to this file's table.
   the table); or the transfer claim gains real evidence (rewrite §Not
   evidenced).
 - **Re-verify core claims**:
-  1. `grep -rn "Park et al\|Gollwitzer\|Oettingen\|planning fallacy\|planning-fallacy" src/ README.md` — citations still where the table says.
+  1. `grep -rn "Park et al\|Gollwitzer\|Oettingen\|planning.fallacy\|fallacy research" src/ README.md` — citations still where the table says (the `src/lib/priors.ts` citation wraps across lines; `fallacy research` is what matches it).
   2. `grep -n "doseSeconds\|minScore\|MIN_LOGS_FOR_HISTORY\|setHours(20, 30" src/app/lock/page.tsx src/lib/graduation.ts src/lib/calibration.ts src/lib/push-client.ts` — doses and gates unchanged.
   3. `npm run build && npm run lint` — repo still in the state this skill assumes.

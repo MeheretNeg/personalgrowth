@@ -18,7 +18,7 @@ training data are Radix-based — **these are not**. Differences that bite:
 | You expect (Radix shadcn) | This repo (Base UI) — verified |
 |---|---|
 | `<Accordion type="multiple">` | `<Accordion multiple>` — Root takes `multiple?: boolean` (`node_modules/@base-ui/react/accordion/root/AccordionRoot.d.ts`) |
-| `asChild` composition | `render={<Component />}` prop — see `DialogClose render={<Button variant="ghost" size="icon-sm" />}` in `src/components/ui/dialog.tsx` |
+| `asChild` composition | `render={<Component />}` prop — see `DialogPrimitive.Close render={<Button variant="ghost" size="icon-sm" />}` inside `DialogContent` in `src/components/ui/dialog.tsx` |
 | `DialogPrimitive.Overlay` / `.Content` | `DialogPrimitive.Backdrop` / `.Popup` (wrapped; consumers still import `DialogOverlay`/`DialogContent`) |
 | `AccordionPrimitive.Content` | `AccordionPrimitive.Panel` |
 | `data-state="open"` selectors | `data-open` / `data-closed` boolean attributes (`data-open:animate-in` etc.) |
@@ -36,16 +36,21 @@ utilities (section 2). Prefer that idiom over `<Card>` for consistency.
 **Props actually used in pages** (match these, don't invent):
 - `Button`: `size="lg"` plus a className override for the big primary CTA —
   `className="h-14 rounded-2xl bg-primary text-lg font-bold tracking-tight text-primary-foreground hover:bg-primary/90"`
-  (h-16 on Execute's Start/Done). Variants `ghost`/`outline` + `icon-sm`
-  appear only inside `dialog.tsx`. Full cva sets: variants default/outline/
-  secondary/ghost/destructive/link; sizes default/xs/sm/lg/icon/icon-xs/icon-sm/icon-lg.
+  (h-16 on Execute's Start/Done). Secondary actions use `variant="secondary"`,
+  usually with `className="rounded-full"` — Plan's inline choice chips add
+  `size="sm"` (`src/app/plan/page.tsx`, e.g. the "Keep Nm" / "Slow day Nm"
+  estimate buttons), Debrief's ±1/±5 delta buttons use the default size, and
+  Lock's Arm button pairs it with `size="lg"` (`src/app/lock/page.tsx`). Variants
+  `ghost`/`outline` + `icon-sm` appear only inside `dialog.tsx`. Full cva sets:
+  variants default/outline/secondary/ghost/destructive/link; sizes
+  default/xs/sm/lg/icon/icon-xs/icon-sm/icon-lg.
 - `Dialog`: always controlled — `<Dialog open={x} onOpenChange={setX}>` with
   `DialogContent/DialogHeader/DialogTitle/DialogDescription` (see the replan
   and checklist dialogs in `src/app/execute/page.tsx`).
 - `Input`: numeric fields use `type="number" inputMode="numeric"` so mobile
   gets a number pad (`src/app/plan/page.tsx`). Input renders `text-base` on
   mobile, `md:text-sm` — do not shrink it (iOS zooms sub-16px inputs).
-- `Textarea`: the checklist editor in Execute.
+- `Textarea`: the checklist editor in Execute and the optional note field in Debrief.
 
 Icons: `lucide-react` (only inside ui/*); pages use inline SVG or text glyphs
 (✓, ✎) — see `voice-input.tsx` for the inline-SVG pattern.
@@ -94,7 +99,9 @@ a pulse inline or you lose that.
 **Chips** are `rounded-full px-4 py-2 text-sm font-semibold` buttons; selected
 state flips to `bg-foreground text-background` (checklist) or `bg-primary/12
 text-primary` (banners). Escape hatches (discard/skip) are small underlined
-muted-text links at the bottom, and their copy states nothing gets logged.
+muted-text links at the bottom; where discarding silently drops training data,
+the copy discloses it — Execute's "This trip isn't happening — discard
+(nothing gets logged)" (`src/app/execute/page.tsx`).
 
 **Class composition**: pages use raw template-literal ternaries —
 `` className={`rounded-full ${behind ? "bg-destructive/15" : "surface-soft"}`} ``.
@@ -169,7 +176,8 @@ buttons ("Plan my next arrival", "I've arrived — debrief", "Out the door").
 
 1. **Urgency without shame.** Lateness is stated as a number plus a next
    action, never a judgment: "7 min behind plan · on pace for 9:12 — replan
-   below"; overtime reads "over — wrap it up"; replan CTA is "Replan from
+   below" (`src/app/execute/page.tsx`); overtime reads "over — wrap it up"
+   (`src/components/time-decay.tsx` `TimeDecay`); replan CTA is "Replan from
    now — make it winnable again" (`src/app/execute/page.tsx`). Failure routes
    back into the loop; there is no punishment framing anywhere. Don't add any.
 2. **Success belongs to the user, not the app.** "Called it. That's a
@@ -177,11 +185,12 @@ buttons ("Plan my next arrival", "I've arrived — debrief", "Out the door").
    protect it." (Execute `finish()`); "…that was the hard part, and you did
    it early." (Lock armed screen); "the record's still yours" (Home).
 3. **Never promise what isn't verified.** The armed screen branches on
-   `pushOk` (`src/app/lock/page.tsx` `arm()`): only when the push sync
-   actually succeeded does it say "You can close the app — Anchor will call
-   you"; on `pushOk === false` it says keep the screen open or set a phone
-   alarm. Any new copy that claims background behavior must be gated the same
-   way (see `notification-pipeline`).
+   `pushOk`, set by `arm()` in `src/app/lock/page.tsx`: on `pushOk === false`
+   it says keep the screen open or set a phone alarm; otherwise (successful
+   sync — or reopening an already-armed plan, where the mount effect leaves
+   `pushOk` null) it says "You can close the app — Anchor will call you". Any
+   new copy that claims background behavior must be gated the same way (see
+   `notification-pipeline`).
 4. **Human labels, never slugs.** Stats' `labelFor()` reverses `drive:`/
    `walk:` taskIds into "Drive → coffee shop" and falls back to the prior's
    label — with the comment "show the label the user chose, not an internal
