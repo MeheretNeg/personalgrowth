@@ -190,6 +190,10 @@ export interface LeaveByInfo {
  * and the app already warns if the departure is after arrival).
  */
 export function leaveByInfo(trip: Trip, now: Date): LeaveByInfo | null {
+  // Transit and pickup are anchored to a vehicle, not a self-powered door —
+  // a "leave-by / cushion" frame is meaningless (and misleading) once the
+  // bus has left. The app already warns if the departure is after arrival.
+  if (trip.transit.mode === "transit" || trip.transit.mode === "pickup") return null;
   const doorStep = trip.timeline.find((s) => s.kind === "travel");
   if (!doorStep) return null;
   const doorAt = new Date(doorStep.startsAt);
@@ -218,12 +222,12 @@ export function leaveByInfo(trip: Trip, now: Date): LeaveByInfo | null {
 export function rebuildRemaining(
   timeline: TimelineStep[],
   fromIndex: number,
-  keepTaskIds: Set<string>,
+  keepStepIds: Set<string>,
 ): { timeline: TimelineStep[]; startAt: Date } {
   const remaining = timeline.slice(fromIndex);
-  const kept = remaining.filter(
-    (s) => s.kind !== "prep" || (s.taskId !== undefined && keepTaskIds.has(s.taskId)),
-  );
+  // Keyed by step id, not taskId — freeform tasks can share a taskId, so
+  // cutting one must not cut its sibling.
+  const kept = remaining.filter((s) => s.kind !== "prep" || keepStepIds.has(s.id));
   // The anchor is immovable: walk backward from the original chain end.
   let end = new Date(remaining[remaining.length - 1].endsAt);
   const rebuilt: TimelineStep[] = [];

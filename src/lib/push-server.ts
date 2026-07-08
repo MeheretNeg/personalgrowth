@@ -104,7 +104,11 @@ async function tick(): Promise<void> {
         console.warn("[push] send failed", status ?? (err as Error).message);
       }
     }
-    if (s.entries.has(endpoint) && entry.cues.length === 0) s.entries.delete(endpoint);
+    // Re-check identity before cleanup: a concurrent setSchedule() may have
+    // replaced this endpoint's entry with a fresh schedule while we awaited
+    // sends — deleting it then would drop cues that were just posted.
+    const current = s.entries.get(endpoint);
+    if (current === entry && entry.cues.length === 0) s.entries.delete(endpoint);
   }
   if (dirty) await persist();
 }

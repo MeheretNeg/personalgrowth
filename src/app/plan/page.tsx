@@ -11,6 +11,7 @@ import {
   loadLastTaskIds,
   loadLogs,
   loadSettings,
+  loadTrip,
   saveLastTaskIds,
   saveSettings,
   saveTrip,
@@ -219,7 +220,7 @@ export default function Plan() {
     }
   }
 
-  function useCalEvent(e: CalEvent) {
+  function applyCalEvent(e: CalEvent) {
     setDestination(destinationFrom(e));
     const p = (n: number) => String(n).padStart(2, "0");
     setArrivalTime(`${p(e.start.getHours())}:${p(e.start.getMinutes())}`);
@@ -297,6 +298,14 @@ export default function Plan() {
 
   function lock() {
     if (!timeline || !arrivalDate || !transit) return;
+    // Never silently clobber a trip that's armed or already running.
+    const active = loadTrip();
+    if (active && (active.phase === "locked" || active.phase === "executing")) {
+      const ok = window.confirm(
+        `You have a ${active.destination} trip already set up. Replace it with this one?`,
+      );
+      if (!ok) return;
+    }
     // Scope travel calibration to this destination so "work" and "gym"
     // learn separately.
     const steps = timeline.steps.map((s) =>
@@ -410,7 +419,7 @@ export default function Plan() {
                   {calEvents.map((e, i) => (
                     <button
                       key={i}
-                      onClick={() => useCalEvent(e)}
+                      onClick={() => applyCalEvent(e)}
                       className="surface-soft flex items-center justify-between gap-2 p-2.5 text-left text-sm"
                     >
                       <span className="min-w-0 truncate font-medium">{e.title}</span>

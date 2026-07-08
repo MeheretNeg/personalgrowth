@@ -12,7 +12,9 @@ import {
   buildAppState,
   coachEnabled,
   coachPlanToTrip,
+  parseCoachPlan,
 } from "@/lib/coach-client";
+import { loadTrip } from "@/lib/store";
 import { formatTime } from "@/lib/engine";
 
 interface Turn {
@@ -68,17 +70,30 @@ export default function Coach() {
       setTurns([...nextTurns, { role: "assistant", content: res.error }]);
       return;
     }
+    const plan = parseCoachPlan(res.plan);
     setTurns([
       ...nextTurns,
       {
         role: "assistant",
-        content: res.reply || (res.plan ? "Here's the plan:" : "…"),
-        plan: (res.plan as CoachPlan) ?? null,
+        content: res.reply || (plan ? "Here's the plan:" : "…"),
+        plan,
       },
     ]);
   }
 
   function lockPlan(plan: CoachPlan) {
+    // An armed/executing trip must never be silently clobbered.
+    const active = loadTrip();
+    if (active && (active.phase === "locked" || active.phase === "executing")) {
+      setTurns((cur) => [
+        ...cur,
+        {
+          role: "assistant",
+          content: `You've already got a ${active.destination} trip going. Finish or discard that one first, then I'll lock this.`,
+        },
+      ]);
+      return;
+    }
     const { trip, error } = coachPlanToTrip(plan);
     if (error || !trip) {
       setTurns((cur) => [

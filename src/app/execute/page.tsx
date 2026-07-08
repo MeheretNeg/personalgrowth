@@ -24,11 +24,14 @@ const DEFAULT_CHECKLIST = ["Keys", "Wallet", "Phone", "Charger"];
 function guessFor(trip: Trip, step: TimelineStep): number | null {
   if (!step.taskId) return null;
   if (step.taskId.startsWith("drive:")) {
-    const g = trip.transit.driveGuessMinutes ?? trip.transit.driveMinutes ?? 0;
-    return g > 0 ? g : null; // 0 = suggestion accepted, not a blind rep
+    // Legacy trips (no driveGuessMinutes) didn't record whether the number
+    // was a blind guess or an accepted suggestion — treat as unscored (0)
+    // rather than crediting the planned value as a perfect rep.
+    const g = trip.transit.driveGuessMinutes ?? 0;
+    return g > 0 ? g : null;
   }
   if (step.taskId.startsWith("walk:")) {
-    const g = trip.transit.walkGuessMinutes ?? trip.transit.walkMinutes ?? 0;
+    const g = trip.transit.walkGuessMinutes ?? 0;
     return g > 0 ? g : null;
   }
   const task = trip.tasks.find((t) => t.taskId === step.taskId);
@@ -196,7 +199,7 @@ export default function Execute() {
   }
 
   function openReplan() {
-    setKeepIds(new Set(remainingPrep.map((s) => s.taskId!).filter(Boolean)));
+    setKeepIds(new Set(remainingPrep.map((s) => s.id)));
     setReplanOpen(true);
   }
 
@@ -523,7 +526,9 @@ export default function Execute() {
           </DialogHeader>
           <div className="flex flex-col gap-2">
             {remainingPrep.map((s) => {
-              const kept = s.taskId !== undefined && keepIds.has(s.taskId);
+              // Key by step.id, not taskId — two freeform tasks can share a
+              // taskId, and cutting one must not cut the other.
+              const kept = keepIds.has(s.id);
               return (
                 <button
                   key={s.id}
@@ -531,9 +536,8 @@ export default function Execute() {
                   onClick={() =>
                     setKeepIds((cur) => {
                       const next = new Set(cur);
-                      if (s.taskId === undefined) return next;
-                      if (next.has(s.taskId)) next.delete(s.taskId);
-                      else next.add(s.taskId);
+                      if (next.has(s.id)) next.delete(s.id);
+                      else next.add(s.id);
                       return next;
                     })
                   }

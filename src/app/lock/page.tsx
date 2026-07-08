@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { clearTrip, loadDebriefs, loadSettings, loadTrip, saveTrip } from "@/lib/store";
 import { formatTime, minutesUntil } from "@/lib/engine";
 import { requestNotifyPermission } from "@/lib/notify";
-import { clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
+import { buildPushCues, clearPushSchedule, syncPushSchedule } from "@/lib/push-client";
 import { formatCountdown } from "@/components/time-decay";
 import { downloadIcs, tripToLeaveByIcs } from "@/lib/calendar";
 import { Trip } from "@/lib/types";
@@ -108,8 +108,14 @@ export default function Lock() {
 
   async function arm() {
     const granted = await requestNotifyPermission();
-    const ok = granted && (await syncPushSchedule(trip!, level));
-    setPushOk(ok);
+    const posted = granted && (await syncPushSchedule(trip!, level));
+    // Only promise a wake-up if a cue actually fires at/near the first
+    // block. At Solo+ levels cues are door-only (or silent), so arming can
+    // schedule pushes but nothing calls you to BEGIN — say so honestly.
+    const cues = buildPushCues(trip!, level, new Date());
+    const startMs = new Date(trip!.timeline[0].startsAt).getTime();
+    const hasWake = cues.some((c) => new Date(c.at).getTime() <= startMs + 90_000);
+    setPushOk(!!posted && hasWake);
     const next = { ...trip!, armedAt: new Date().toISOString() };
     saveTrip(next);
     setTrip(next);
@@ -190,7 +196,7 @@ export default function Lock() {
         {topLeak && (
           <p className="surface-active p-3.5 text-sm">
             Your #1 leak lately: <b>{topLeak.toLowerCase()}</b>. So — when it
-            threatens today, then {COUNTERMEASURES[topLeak].toLowerCase()}
+            threatens today, then {COUNTERMEASURES[topLeak]}
           </p>
         )}
       </section>
